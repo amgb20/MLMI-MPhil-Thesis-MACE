@@ -11,9 +11,9 @@ This is a University of Cambridge MLMI MPhil Thesis on **Speeding up MACE**
 - [ ] [Stochastic Interpolants: A Unifying Framework for Flows and Diffusions](https://arxiv.org/abs/2303.08797)
 
 ### Videos
-- [ ] [The MACE intro video #1](https://www.youtube.com/watch?v=WgFAZygGV8w)
-- [ ] [The MACE intro video #2](https://www.youtube.com/watch?v=ja-3UrdSRi4)
-- [ ] [The MACE intro video #3](https://www.youtube.com/watch?v=pRbvRl0_FyE)
-- [ ] [The MACE intro video #4](https://www.youtube.com/watch?v=zsIyzLtwAHY)
+- [ ] [Machine learning potentials always extrapolate, it does not matter](https://www.youtube.com/watch?v=WgFAZygGV8w)
+- [ ] [Atomic Cluster Expansion: A framework for fast and accurate ML force fields](https://www.youtube.com/watch?v=ja-3UrdSRi4)
+- [ ] [Orb-v3: atomistic simulation at scale | Tim Duignan & Sander Vandenhaute](https://www.youtube.com/watch?v=pRbvRl0_FyE)
+- [ ] [Day 3 - Harnessing Geometric ML for Molecular Design | Michael Bronstein](https://www.youtube.com/watch?v=zsIyzLtwAHY)
 - [ ] [Every video on The Computational Chemist YouTube channel](https://www.youtube.com/@thecomputationalchemist)
 - [ ] [Open Catalyst Project videos](https://www.youtube.com/@opencatalystproject3509/videos?app=desktop)
