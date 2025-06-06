@@ -4,6 +4,8 @@ This is a University of Cambridge MLMI MPhil Thesis on **Speeding up MACE**
 ## TODO List
 
 ### Coding
+
+Coding notes can be accessed in [Tutorial Notes](Notes/Tutorials/T03-MACE-Theory.md)
 - [ ] [MACE GitHub Repository](https://github.com/ACEsuit/mace) — try to look through the code and train a MACE-small on a subset of a dataset.
 
 ### Reading
