@@ -3,6 +3,14 @@ This is a University of Cambridge MLMI MPhil Thesis on **Speeding up MACE**
 
 ## TODO List
 
+### Open questions
+
+- [ ] It seems that they are hundreds of different Tensor config? which one are we using [torch.Tensor](https://docs.pytorch.org/docs/stable/tensors.html)
+
+### Speeding up
+
+Some GPT suggestions for starting experiments on speeding up inference: [Speeding UP MACE](Notes/General%20Concepts/Speeding_up.md)
+
 ### Coding
 
 Coding notes can be accessed in [Tutorial Notes](Notes/Tutorials/T03-MACE-Theory.md)

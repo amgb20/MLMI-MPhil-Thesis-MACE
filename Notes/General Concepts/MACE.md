@@ -388,5 +388,3 @@ By building up messages and features in this structured way, **MACE ensures equi
 | **MACE Usage**                     | Projects relative positions using $Y_\ell^m$ to form angularly aware, equivariant messages |
 
 ---
-
-Would you like a **visual of how relative positions are expanded in spherical harmonics** for MACE message construction? Or a **small code example** using `e3nn` showing how $Y_\ell^m$ is used to encode angular features?
