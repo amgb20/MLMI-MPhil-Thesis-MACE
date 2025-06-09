@@ -1,6 +1,6 @@
 # Shematic MACE
 
-![alt text](../images/schematic_mace.png)
+![alt text](../../images/schematic_mace.png)
 
 For every stage I also flag **🟢 safe-to-lower-precision** and **🔶 keep-/-accumulate FP32** recommendations.
 

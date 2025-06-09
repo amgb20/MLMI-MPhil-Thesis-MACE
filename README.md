@@ -15,6 +15,7 @@ Some GPT suggestions for starting experiments on speeding up inference: [Speedin
 
 Coding notes can be accessed in [Tutorial Notes](Notes/Tutorials/T03-MACE-Theory.md)
 - [ ] [MACE GitHub Repository](https://github.com/ACEsuit/mace) — try to look through the code and train a MACE-small on a subset of a dataset.
+- [ ] Running the MACE tutorials #3
 
 ### Reading
 - [ ] [Computing hydration free energies of small molecules with first principles accuracy](https://arxiv.org/abs/2405.18171)
@@ -33,3 +34,4 @@ Coding notes can be accessed in [Tutorial Notes](Notes/Tutorials/T03-MACE-Theory
 
 - Run the mace tutorials and did a subproject by evaluating the computation efficiency of each step of the mace schematic
 - Read MACE paper and notes
+- Main thing to look at is the equivarient MPNNs tensor product (equation 8 in paper)

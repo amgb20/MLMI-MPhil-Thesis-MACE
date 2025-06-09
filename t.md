@@ -1,85 +1,59 @@
-Yes — several **low-precision strategies** can be safely applied in this MPNN interatomic potential pipeline (like MACE or NequIP) to **speed up computation** while **preserving accuracy**. Let’s walk through each stage and identify:
 
-* ✅ where **FP16/BF16** can be used,
-* ⚠️ where **FP32 should be kept** for numerical stability,
-* 💡 what *mathematically* justifies it.
+## 🔬 **Low-Precision Training: What Can Be Tested**
 
----
+Here's what you can test or experiment with **today** to address these computational bottlenecks using **low-precision techniques**:
 
-## 📌 Quick Reference: Where Low Precision Can Be Applied
-
-| Step                                                          | Operation                         | Safe for FP16/BF16?            | Why?                                                                  |
-| ------------------------------------------------------------- | --------------------------------- | ------------------------------ | --------------------------------------------------------------------- |
-| **Node embeddings** $h_i^{(0)} = \mathrm{Embed}(z_i)$         | Table lookup or learned MLP       | ✅ Yes                          | Typically small, static; fast and safe in FP16                        |
-| **Message function** $M_t(\sigma_i, \sigma_j)$                | MLP over pairwise features        | ✅ Yes                          | Dominated by tensor ops; good FP16 acceleration                       |
-| **Distance norms** $\|\mathbf{r}_j - \mathbf{r}_i\|$          | Vector subtraction + norm         | ⚠️ Prefer FP32                 | Risk of cancellation for small displacements                          |
-| **Angle & basis computation** $Y_\ell^m(\hat{r}_{ij})$        | Trig ops (acos, atan2)            | ⚠️ FP32 preferred or post-cast | Numerical errors if computed in FP16, but can be cast down afterwards |
-| **Message pooling** $\sum_j M_t(\cdot)$                       | Perm-invariant sum over neighbors | ⚠️ Use FP32 for sum            | Prevents underflow/cancellation in large molecules                    |
-| **Feature updates** $h_i^{(t+1)} = U_t(h_i^{(t)}, m_i^{(t)})$ | MLP or GRU block                  | ✅ Yes                          | Standard tensor ops; good fit for FP16/BF16                           |
-| **Readout MLPs** $R_t(h_i^{(t)})$                             | Maps to site energies             | ✅ Yes                          | Scalar outputs → well-behaved                                         |
-| **Energy accumulation** $E = \sum_i E_i$                      | Global reduction                  | ⚠️ Must be FP32                | Errors accumulate if summed in FP16                                   |
-| **Force computation** $-\nabla_{r_i} E$                       | Backprop/autograd                 | ⚠️ AMP + loss scaling needed   | Gradients prone to underflow in FP16                                  |
+| **Test/Strategy**                             | **Where to Apply**                         | **Expected Benefit**                            | **Tools to Use**                                                             |
+| --------------------------------------------- | ------------------------------------------ | ----------------------------------------------- | ---------------------------------------------------------------------------- |
+| **Mixed-Precision Training**                  | Everywhere except CG and SH ops            | 2–3× speedup, lower memory                      | `torch.cuda.amp` (PyTorch) or `jax.lax.precision`                            |
+| **Low-Precision Tensor Contractions**         | Eq. (10) — node-level loop contractions    | Significant speedup at L ≥ 1 or ν ≥ 2           | Implement custom fused kernels or use `Triton`, `XLA`, `NVIDIA Tensor Cores` |
+| **Keep Clebsch–Gordan / SH Terms in Float32** | Tensor ops involving rotation-equivariance | Avoids equivariance-breaking artifacts          | Store CG/Ylm tables as `float32` constants                                   |
+| **Loss Scaling**                              | During backpropagation                     | Prevents underflow in float16 gradients         | Use `GradScaler` in PyTorch                                                  |
+| **Quantize MLP Readout Layers**               | Final site energy prediction               | 8-bit quantization viable without accuracy loss | Use `torch.quantization` or ONNX INT8                                        |
 
 ---
 
-## 🧮 Mathematical Justification
+## 📈 **Parallelism and Training Time Gains**
 
-Low precision introduces quantization noise:
+* **Observation**: MACE with L=0 is \~10× faster than NequIP/BOTNet while maintaining accuracy.
+* **Training speedup**: MACE reaches BOTNet-level accuracy in **30 mins vs 24+ hrs**.
+* **Reason**: Its tensor-based message formulation + small receptive field reduces GPU memory contention and communication overhead → **better scaling across multiple GPUs**.
 
-$$
-\tilde{x} = x + \varepsilon, \quad \text{where } \mathbb{E}[\varepsilon] = 0,\ \mathrm{Var}[\varepsilon] \propto \Delta^2
-$$
-
-This noise can:
-
-* Be **tolerated** in high-throughput linear layers
-* **Amplify** in:
-
-  * Norms $\|\mathbf{r}\|$ near zero
-  * Accumulations $\sum_i x_i$ over many terms
-  * Backpropagation (multiplication chains)
-
-So the key idea is: **apply FP16 where values are bounded and errors don’t accumulate**, but **retain FP32 where precision compounds**.
+This makes it especially attractive for **active learning workflows**, where fast retraining and re-evaluation are crucial.
 
 ---
 
-## 💡 Practical Implementation in PyTorch
+## 🧪 **Future/Experimental Ideas**
 
-* Wrap the forward pass in:
+You could also explore:
 
-  ```python
-  with torch.autocast("cuda", dtype=torch.float16):
-      energy = model(pos, z)
-  ```
-* Use `GradScaler` during training:
+1. **Layer-wise Precision Scaling**:
 
-  ```python
-  scaler = torch.cuda.amp.GradScaler()
-  ...
-  with autocast():
-      loss = ...
-  scaler.scale(loss).backward()
-  scaler.step(optimizer)
-  scaler.update()
-  ```
-* Use `.float()` casting **just before summing** energy or computing force:
+   * Use float16 for readout and intermediate MLPs.
+   * Use float32 for initial feature computation and CG terms.
 
-  ```python
-  energy = per_atom_energy.float().sum()
-  ```
+2. **Progressive Correlation Order**:
+
+   * Start training with ν = 1, then progressively raise it.
+   * Benefit: lower early-phase compute + stable convergence.
+
+3. **Neural Compression of Species Embeddings**:
+
+   * Replace fixed species embeddings with **low-rank or quantized embeddings**.
+   * Especially helpful for large-S datasets (e.g., periodic table-sized chemical space).
+
+4. **Operator Fusion + Kernel Optimization**:
+
+   * Fuse radial, angular, and contraction steps to reduce memory reads/writes.
+   * Implement with Triton or TVM for custom GPUs.
 
 ---
 
-## 🧪 Summary: Apply Low Precision Where It Matters
+## ✅ **Takeaway Summary**
 
-| Component          | Cast to FP16/BF16? | Note                             |
-| ------------------ | ------------------ | -------------------------------- |
-| Node/edge features | ✅                  | Tensor Core friendly             |
-| MLPs               | ✅                  | Safe, fast                       |
-| Tensor products    | ✅                  | Accelerates message construction |
-| Basis functions    | ⚠️                 | Compute in FP32, then cast       |
-| Coordinate diffs   | ⚠️                 | Keep FP32 to avoid errors        |
-| Energy reduction   | ❌                  | Must accumulate in FP32          |
-| Autograd gradients | ⚠️                 | Use AMP + loss scaling           |
+* **Computation bottlenecks in MACE** are dominated by equivariant tensor algebra, not neighbor gathering.
+* **MACE already addresses** some scaling issues with smart architectural design (species compression, small receptive field, loop contractions).
+* **Low-precision training and mixed-precision inference** are highly promising: they target exactly the bottlenecks that remain.
+* With current tools (PyTorch AMP, JAX, Triton), you can **immediately test** these strategies for real-world speedup.
 
-Would you like me to walk through how this would be integrated in the actual MACE forward pass, or give a benchmark-ready version with `torch.autocast` hooks?
+Let me know if you'd like a benchmarking plan or starter script to begin testing these strategies.

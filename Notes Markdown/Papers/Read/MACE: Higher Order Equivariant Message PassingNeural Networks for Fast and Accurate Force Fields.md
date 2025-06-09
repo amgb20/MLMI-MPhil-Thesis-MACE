@@ -268,3 +268,172 @@ If we apply a rotation $Q$ (say 90° around z), the updated features will be:
 * Tensor components get rotated via a 5×5 Wigner matrix $D^{(2)}(Q)$
 
 ### The MACE architecture
+
+
+#### 🔧 **1. General Setup: MACE Extends MPNNs**
+
+* The MACE model builds on the **Message Passing Neural Network (MPNN)** framework.
+* Its **core innovation** lies in how **messages** are constructed during message passing.
+
+---
+
+#### 🧠 **2. Hierarchical Message Construction**
+
+* Messages $m_i^{(t)}$ are computed using a **hierarchical expansion** over increasing interaction orders:
+
+  $$
+  m_i^{(t)} = \sum_j u_1(\sigma_i^{(t)}, \sigma_j^{(t)}) + \sum_{j_1,j_2} u_2(\sigma_i^{(t)}; \sigma_{j_1}^{(t)}, \sigma_{j_2}^{(t)}) + \cdots
+  $$
+
+  * Each $u_\nu$ is a **learnable function** capturing ν-body interactions (e.g., pairwise, triplet, etc.).
+  * $\sigma_i^{(t)}$ are node features at layer $t$.
+  * $\nu$ controls the **maximum correlation order**.
+
+##### Key Point:
+
+* This includes **self-interactions** (e.g., $j_1 = j_2$) in the sums, which simplifies later tensor operations and **avoids the exponential cost** of enumerating all combinations like in DimeNet.
+
+---
+
+#### 🧱 **3. Edge Embeddings and 2-Body Features (Equation 8)**
+
+* They embed directional information using:
+
+  * **Radial basis functions** $R$ (learned with MLPs).
+  * **Spherical harmonics** $Y_l^m$ for angular parts.
+  * **Clebsch-Gordan coefficients** $C$ to maintain SO(3) **equivariance**.
+* The 2-body feature is:
+
+  $$
+  A^{(t)}_{i,kl_3m_3} = \sum_{j \in N(i)} \sum_{l_1m_1,l_2m_2} C^{l_3m_3}_{l_1m_1,l_2m_2} R(r_{ji}) Y_{l_1}^{m_1}(\hat{r}_{ji}) W h_j^{(t)}
+  $$
+
+  * This encodes both radial and angular structure of local atomic environments.
+
+---
+
+#### 🧮 **4. Higher-Order Features via Tensor Products (Equation 10)**
+
+* Higher-order interactions are formed from **tensor products** of the 2-body features $A^{(t)}_i$, then projected to specific angular components using **generalized Clebsch-Gordan coefficients**.
+
+  $$
+  B^{(t)}_{i,\eta^\nu kLM} = \sum_{lm} C_{LM}^{\eta^\nu,lm} \prod_{\xi=1}^\nu \sum_{\tilde{k}} w^{(t)}_{k k^{\tilde{\xi}}} A^{(t)}_{i,k^{\tilde{\xi}}m_\xi}
+  $$
+
+  * $\nu$ is the **order of the interaction** (triplet, quadruplet, etc.).
+  * $C$ selects combinations that transform correctly under SO(3).
+  * Efficiently computed because these coefficients are sparse and precomputable.
+
+---
+
+#### ✉️ **5. Final Message Construction (Equation 11)**
+
+* The actual message $m^{(t)}_i$ is a **linear combination** of all these higher-order $B^{(t)}$ features:
+
+  $$
+  m^{(t)}_{i,kLM} = \sum_\nu \sum_{\eta^\nu} W_{zikL,\eta^\nu}^{(t)} B^{(t)}_{i,\eta^\nu kLM}
+  $$
+
+  * Indexed by receiving atom type $z_i$, body order $\nu$, and equivariance order $L$.
+  * This is the efficient realization of the body-ordered expansion in Equation (7).
+
+---
+
+#### 🔁 **6. Update Step (Equation 12)**
+
+* Node features are updated linearly using:
+
+  $$
+  h^{(t+1)}_{i,kLM} = \sum_{\tilde{k}} W_{kL,\tilde{k}}^{(t)} m^{(t)}_{i,kLM} + \sum_{\tilde{k}} W_{z_i kL,\tilde{k}}^{(t)} h^{(t)}_{i,kLM}
+  $$
+
+  * Includes **residual connections** to stabilize training.
+
+---
+
+#### 📤 **7. Readout Phase (Equation 13)**
+
+* Energy for each atom $E_i$ is obtained by summing contributions across all layers.
+
+  * For $t < T$: use a simple linear mapping on **invariant** features.
+  * For final layer $t = T$: use a small **MLP** on invariant features.
+
+---
+
+<div style="background-color: #77C618; color: black; padding: 15px; border-radius: 5px;">
+
+**Point of observation**
+
+---
+
+### ⚙️ **Low-Precision Strategies in MACE**
+
+| **Component**                     | **Role in MACE**                        | **Precision Strategy**                                                                           | **Benefits**                               | **Risks & Mitigations**                                                          |
+| --------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------ | -------------------------------------------------------------------------------- |
+| **Tensor Product (Eq. 10)**       | Build higher-order equivariant features | Use `float16`/`bfloat16` for inputs and multiplications; precompute CG coefficients in `float32` | Major speedup, large memory savings        | Loss of equivariance if CG coefficients are low precision → keep CG in `float32` |
+| **Radial Basis + MLP**            | Embed interatomic distances             | Safe to use `float16`/`bfloat16`                                                                 | Fast computation, stable gradients         | Minimal risk if smooth basis; validate numerical range                           |
+| **Spherical Harmonics $Y_l^m$**   | Encodes directionality                  | Use `float32` or analytically stable low-precision basis                                         | Ensures SO(3) equivariance                 | Use `float32` to avoid angular artifacts                                         |
+| **Message Aggregation (Eq. 11)**  | Combine body-ordered tensors            | Mixed precision (low-precision inputs, float32 accumulators)                                     | High performance, still numerically stable | Use PyTorch AMP for gradient scaling                                             |
+| **Node Feature Updates (Eq. 12)** | Residual update step                    | Mixed precision recommended                                                                      | Efficient backpropagation                  | Risk of exploding/vanishing gradients → apply loss scaling                       |
+| **Readout MLP (Eq. 13)**          | Predict site energies                   | Fully use `float16` or quantized INT8                                                            | Safe, fast inference                       | None if only invariant inputs used                                               |
+| **Clebsch–Gordan Coefficients**   | Enforce equivariance structure          | Keep in `float32`, use as constants                                                              | Guarantees SO(3) structure                 | Must avoid quantization or rounding error                                        |
+| **Training Pipeline**             | Whole training loop                     | Mixed-precision training (`autocast`, `GradScaler`)                                              | 1.5–2x speedup, less memory                | Underflow → use loss scaling                                                     |
+
+</div>
+
+### Scaling and Computatinoal Cost
+
+#### 1. Equivariant Tensor Product Cost	
+
+Tensor product operations (especially Eq. 8) are expensive due to high angular resolution and edge-level computation	MACE computes expensive edge-based product once, then does node-based contractions (Eq. 10) using loop tensor contractions (faster)	This is still a major compute load — ideal place to apply low-precision optimization, kernel fusion, or custom CUDA ops
+
+#### 2. Parallelism and Training Time Gains
+Observation: MACE with L=0 is ~10× faster than NequIP/BOTNet while maintaining accuracy.
+
+Training speedup: MACE reaches BOTNet-level accuracy in 30 mins vs 24+ hrs.
+
+Reason: Its tensor-based message formulation + small receptive field reduces GPU memory contention and communication overhead → better scaling across multiple GPUs.
+
+<div style="background-color: #77C618; color: black; padding: 15px; border-radius: 5px;">
+
+**Point of observation**
+
+## 🔬 **Low-Precision Training: What Can Be Tested**
+
+| **Test/Strategy**                             | **Where to Apply**                         | **Expected Benefit**                            | **Tools to Use**                                                             |
+| --------------------------------------------- | ------------------------------------------ | ----------------------------------------------- | ---------------------------------------------------------------------------- |
+| **Mixed-Precision Training**                  | Everywhere except CG and SH ops            | 2–3× speedup, lower memory                      | `torch.cuda.amp` (PyTorch) or `jax.lax.precision`                            |
+| **Low-Precision Tensor Contractions**         | Eq. (10) — node-level loop contractions    | Significant speedup at L ≥ 1 or ν ≥ 2           | Implement custom fused kernels or use `Triton`, `XLA`, `NVIDIA Tensor Cores` |
+| **Keep Clebsch–Gordan / SH Terms in Float32** | Tensor ops involving rotation-equivariance | Avoids equivariance-breaking artifacts          | Store CG/Ylm tables as `float32` constants                                   |
+| **Loss Scaling**                              | During backpropagation                     | Prevents underflow in float16 gradients         | Use `GradScaler` in PyTorch                                                  |
+| **Quantize MLP Readout Layers**               | Final site energy prediction               | 8-bit quantization viable without accuracy loss | Use `torch.quantization` or ONNX INT8
+
+</div>
+
+<div style="background-color: #77C618; color: black; padding: 15px; border-radius: 5px;">
+
+## 🧪 **Future/Experimental Ideas**
+
+You could also explore:
+
+1. **Layer-wise Precision Scaling**:
+
+   * Use float16 for readout and intermediate MLPs.
+   * Use float32 for initial feature computation and CG terms.
+
+2. **Progressive Correlation Order**:
+
+   * Start training with ν = 1, then progressively raise it.
+   * Benefit: lower early-phase compute + stable convergence.
+
+3. **Neural Compression of Species Embeddings**:
+
+   * Replace fixed species embeddings with **low-rank or quantized embeddings**.
+   * Especially helpful for large-S datasets (e.g., periodic table-sized chemical space).
+
+4. **Operator Fusion + Kernel Optimization**:
+
+   * Fuse radial, angular, and contraction steps to reduce memory reads/writes.
+   * Implement with Triton or TVM for custom GPUs.               
+
+</div>
