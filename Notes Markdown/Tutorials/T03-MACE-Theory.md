@@ -280,7 +280,7 @@ tensor_product = o3.FullyConnectedTensorProduct(
 
 ---
 
-## ✅ What This Confirms
+### ✅ What This Confirms
 
 | Visual Element         | Meaning                                                                                 |
 | ---------------------- | --------------------------------------------------------------------------------------- |
