@@ -183,3 +183,118 @@ In MACE, for a pair of atoms $i, j$, the model uses:
 * Relative vector: $\mathbf{r}_{ij} = \mathbf{r}_j - \mathbf{r}_i$
 * Unit vector: $\hat{\mathbf{r}}_{ij} = \mathbf{r}_{ij} / \|\mathbf{r}_{ij}\|$
 * **Angular embedding**: evaluates $Y_\ell^m(\hat{\mathbf{r}}_{ij})$ for a fixed $\ell$
+
+
+## Getting Invariant Quantities with `e3nn`
+
+### 📘 Theoretical Foundations
+
+MACE uses **O(3)-equivariant message passing**, where internal node features are structured as:
+
+$$
+h_{i,kLM}^{(t)} \in \mathbb{R}^{(2L + 1)}
+$$
+
+* $t$: Layer index (depth)
+* $k$: Channel index (number of copies of an irrep)
+* $L$: Angular momentum (0=scalar, 1=vector, 2=rank-2 tensor, etc.)
+* $M \in [-L, L]$: Component index
+
+These features transform under a rotation $Q \in O(3)$ via a **Wigner D-matrix**:
+
+$$
+h_{i,kLM}^{(t)}(Q \cdot \{r_j\}) = \sum_{M'} D^{(L)}_{M'M}(Q) \, h_{i,kLM'}^{(t)}(\{r_j\})
+\tag{6 from paper}
+$$
+
+---
+
+### 🔧 How Tensor Products Build Equivariant Features
+
+To construct new equivariant features from existing ones, MACE uses **Clebsch–Gordan tensor products**:
+
+$$
+\text{irrep}^{(L_1)} \otimes \text{irrep}^{(L_2)} \rightarrow \bigoplus_{L=|L_1 - L_2|}^{L_1 + L_2} \text{irrep}^{(L)}
+$$
+
+This forms the core of the message function $M_t(\cdot)$ and update function $U_t(\cdot)$ in the message passing:
+
+| Equation                                                                              | Description                     |
+| ------------------------------------------------------------------------------------- | ------------------------------- |
+| $m_i^{(t)} = \bigoplus_{j \in \mathcal{N}(i)} M_t(\sigma_i^{(t)}, \sigma_j^{(t)})$    | Message construction (Eq. 2)    |
+| $h_i^{(t+1)} = U_t(\sigma_i^{(t)}, m_i^{(t)})$                                        | Feature update (Eq. 3)          |
+| $h_{i,kLM}^{(t)}(Q\cdot \{r_j\}) = \sum_{M'} D_{M'M}^{(L)}(Q) \cdot h_{i,kLM'}^{(t)}$ | Rotation transformation (Eq. 6) |
+
+---
+
+### 💻 Corresponding Code Implementation
+
+```python
+tensor_product = o3.FullyConnectedTensorProduct(
+    irreps_in1=o3.Irreps("1x0e + 1x1o + 1x2e"),
+    irreps_in2=o3.Irreps("1x0e + 1x1o + 1x2e"),
+    irreps_out=o3.Irreps("3x0e"),
+    internal_weights=False
+)
+```
+
+| Code Element             | Meaning                                                                                  |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| `1x0e`                   | One scalar channel (L=0, even parity)                                                    |
+| `1x1o`                   | One vector channel (L=1, odd parity)                                                     |
+| `1x2e`                   | One rank-2 tensor channel (L=2, even parity)                                             |
+| Tensor product           | Combines pairs like $1 \otimes 1$, $2 \otimes 2$, etc., projecting to $L=0$ output       |
+| `3x0e` output            | The result is **3 invariant scalars** (often used for energy readout or scalar coupling) |
+| `internal_weights=False` | No automatic learning — weights must be explicitly defined or tested for analysis        |
+
+---
+
+### 🧮 Intuition and Visualization
+
+* You're forming all valid $L_1 \otimes L_2 \to L=0$ combinations
+* This produces rotation-invariant outputs from rotation-equivariant inputs
+* `.visualize()` shows the **Clebsch–Gordan paths** (e.g., $1 \otimes 1 \to 0$, $2 \otimes 2 \to 0$)
+
+![cg viz](../images/CG_tree_visualization.png)
+
+
+### 🔀 Left and right branches:
+
+* These are the **input irreps**:
+
+  * Left: $0e$, $1o$, $2e$ from `irreps_in1`
+  * Right: $0e$, $1o$, $2e$ from `irreps_in2`
+
+### 🌿 Middle connections:
+
+* Each green **branch pair** shows a **valid tensor product path**:
+
+  * e.g., $1o \otimes 1o \rightarrow 0e$
+  * e.g., $2e \otimes 2e \rightarrow 0e$
+  * e.g., $0e \otimes 0e \rightarrow 0e$
+
+### 🎯 Root (bottom):
+
+* Final output: **3 copies of $0e$** (scalar, even parity)
+* You asked the layer to produce `3x0e`, so **3 such branches** terminate here.
+
+---
+
+## ✅ What This Confirms
+
+| Visual Element         | Meaning                                                                                 |
+| ---------------------- | --------------------------------------------------------------------------------------- |
+| Green connections      | All the **allowed pairs** $(L_1 \otimes L_2 \to L_\text{out})$ that can result in $L=0$ |
+| Symmetry rules applied | Each branch respects **Clebsch–Gordan decomposition** under O(3)                        |
+| Output = $3 \times 0e$ | You will get **3 scalar outputs**, each built from a different valid input combination  |
+
+---
+
+### 💡 Example: Which terms contribute?
+
+* $0e \otimes 0e \rightarrow 0e$
+* $1o \otimes 1o \rightarrow 0e$
+* $2e \otimes 2e \rightarrow 0e$
+
+All of these **survive** and contribute to the output `3x0e`.
+

@@ -1,57 +1,85 @@
-Absolutely — here’s a **quick summary comparing FP32 vs FP16**, both as a **markdown reference note** and a **Python code example** you can run to observe the differences in precision and rounding.
+Yes — several **low-precision strategies** can be safely applied in this MPNN interatomic potential pipeline (like MACE or NequIP) to **speed up computation** while **preserving accuracy**. Let’s walk through each stage and identify:
+
+* ✅ where **FP16/BF16** can be used,
+* ⚠️ where **FP32 should be kept** for numerical stability,
+* 💡 what *mathematically* justifies it.
 
 ---
 
-## ✅ Summary: FP32 vs FP16
+## 📌 Quick Reference: Where Low Precision Can Be Applied
 
-### 🧠 Theoretical Comparison
-
-| Property          | FP32 (float32)       | FP16 (float16)                                          |
-| ----------------- | -------------------- | ------------------------------------------------------- |
-| Total bits        | 32                   | 16                                                      |
-| Mantissa bits     | 23                   | 10                                                      |
-| Decimal precision | \~7 digits           | \~3 digits                                              |
-| Value range       | \~±$10^{38}$         | \~±$10^5$                                               |
-| Memory usage      | 4 bytes / value      | 2 bytes / value                                         |
-| Performance       | Slower, more precise | Faster, less precise                                    |
-| Typical use       | Default for training | Efficient inference / low-precision training (with AMP) |
-
----
-
-### 🔍 Practical Example in Python
-
-```python
-import torch
-
-# Define a float32 tensor with high-precision value
-vector_fp32 = torch.tensor([1.2345678], dtype=torch.float32)
-
-# Convert to float16 (half precision)
-vector_fp16 = vector_fp32.half()
-
-# Print both values with full decimal precision
-print(f"FP32 value  : {vector_fp32.item():.10f}")
-print(f"FP16 value  : {vector_fp16.item():.10f}")
-
-# Absolute error
-error = torch.abs(vector_fp16.float() - vector_fp32)
-print(f"Absolute error: {error.item():.10f}")
-```
-
-### 🧾 Output:
-
-```
-FP32 value  : 1.2345678806
-FP16 value  : 1.2343750000
-Absolute error: 0.0001928806
-```
+| Step                                                          | Operation                         | Safe for FP16/BF16?            | Why?                                                                  |
+| ------------------------------------------------------------- | --------------------------------- | ------------------------------ | --------------------------------------------------------------------- |
+| **Node embeddings** $h_i^{(0)} = \mathrm{Embed}(z_i)$         | Table lookup or learned MLP       | ✅ Yes                          | Typically small, static; fast and safe in FP16                        |
+| **Message function** $M_t(\sigma_i, \sigma_j)$                | MLP over pairwise features        | ✅ Yes                          | Dominated by tensor ops; good FP16 acceleration                       |
+| **Distance norms** $\|\mathbf{r}_j - \mathbf{r}_i\|$          | Vector subtraction + norm         | ⚠️ Prefer FP32                 | Risk of cancellation for small displacements                          |
+| **Angle & basis computation** $Y_\ell^m(\hat{r}_{ij})$        | Trig ops (acos, atan2)            | ⚠️ FP32 preferred or post-cast | Numerical errors if computed in FP16, but can be cast down afterwards |
+| **Message pooling** $\sum_j M_t(\cdot)$                       | Perm-invariant sum over neighbors | ⚠️ Use FP32 for sum            | Prevents underflow/cancellation in large molecules                    |
+| **Feature updates** $h_i^{(t+1)} = U_t(h_i^{(t)}, m_i^{(t)})$ | MLP or GRU block                  | ✅ Yes                          | Standard tensor ops; good fit for FP16/BF16                           |
+| **Readout MLPs** $R_t(h_i^{(t)})$                             | Maps to site energies             | ✅ Yes                          | Scalar outputs → well-behaved                                         |
+| **Energy accumulation** $E = \sum_i E_i$                      | Global reduction                  | ⚠️ Must be FP32                | Errors accumulate if summed in FP16                                   |
+| **Force computation** $-\nabla_{r_i} E$                       | Backprop/autograd                 | ⚠️ AMP + loss scaling needed   | Gradients prone to underflow in FP16                                  |
 
 ---
 
-### 🎯 Interpretation
+## 🧮 Mathematical Justification
 
-* **FP32** keeps most of the original decimal digits.
-* **FP16** rounds the number due to limited mantissa → error is small, but not negligible.
-* In **scientific ML models like MACE**, you can safely use FP16 **for inference** in parts like tensor ops — but **not** for delicate accumulations or gradients without loss scaling.
+Low precision introduces quantization noise:
 
-Let me know if you’d like a visualization of how values are distributed in FP16 vs FP32!
+$$
+\tilde{x} = x + \varepsilon, \quad \text{where } \mathbb{E}[\varepsilon] = 0,\ \mathrm{Var}[\varepsilon] \propto \Delta^2
+$$
+
+This noise can:
+
+* Be **tolerated** in high-throughput linear layers
+* **Amplify** in:
+
+  * Norms $\|\mathbf{r}\|$ near zero
+  * Accumulations $\sum_i x_i$ over many terms
+  * Backpropagation (multiplication chains)
+
+So the key idea is: **apply FP16 where values are bounded and errors don’t accumulate**, but **retain FP32 where precision compounds**.
+
+---
+
+## 💡 Practical Implementation in PyTorch
+
+* Wrap the forward pass in:
+
+  ```python
+  with torch.autocast("cuda", dtype=torch.float16):
+      energy = model(pos, z)
+  ```
+* Use `GradScaler` during training:
+
+  ```python
+  scaler = torch.cuda.amp.GradScaler()
+  ...
+  with autocast():
+      loss = ...
+  scaler.scale(loss).backward()
+  scaler.step(optimizer)
+  scaler.update()
+  ```
+* Use `.float()` casting **just before summing** energy or computing force:
+
+  ```python
+  energy = per_atom_energy.float().sum()
+  ```
+
+---
+
+## 🧪 Summary: Apply Low Precision Where It Matters
+
+| Component          | Cast to FP16/BF16? | Note                             |
+| ------------------ | ------------------ | -------------------------------- |
+| Node/edge features | ✅                  | Tensor Core friendly             |
+| MLPs               | ✅                  | Safe, fast                       |
+| Tensor products    | ✅                  | Accelerates message construction |
+| Basis functions    | ⚠️                 | Compute in FP32, then cast       |
+| Coordinate diffs   | ⚠️                 | Keep FP32 to avoid errors        |
+| Energy reduction   | ❌                  | Must accumulate in FP32          |
+| Autograd gradients | ⚠️                 | Use AMP + loss scaling           |
+
+Would you like me to walk through how this would be integrated in the actual MACE forward pass, or give a benchmark-ready version with `torch.autocast` hooks?

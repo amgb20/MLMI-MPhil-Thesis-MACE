@@ -27,3 +27,9 @@ Coding notes can be accessed in [Tutorial Notes](Notes/Tutorials/T03-MACE-Theory
 - [ ] [Day 3 - Harnessing Geometric ML for Molecular Design | Michael Bronstein](https://www.youtube.com/watch?v=zsIyzLtwAHY)
 - [ ] [Every video on The Computational Chemist YouTube channel](https://www.youtube.com/@thecomputationalchemist)
 - [ ] [Open Catalyst Project videos](https://www.youtube.com/@opencatalystproject3509/videos?app=desktop)
+- [x] [MACE: Higher Order Equivariant Message Passing Neural Networks for Fast and Accurate Force Fields](https://www.youtube.com/watch?v=I9Y2le9e74A&ab_channel=ValenceLabs)
+
+### Completed Task
+
+- Run the mace tutorials and did a subproject by evaluating the computation efficiency of each step of the mace schematic
+- Read MACE paper and notes
