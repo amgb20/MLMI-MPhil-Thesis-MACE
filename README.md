@@ -15,23 +15,30 @@ Some GPT suggestions for starting experiments on speeding up inference: [Speedin
 
 Coding notes can be accessed in [Tutorial Notes](Notes/Tutorials/T03-MACE-Theory.md)
 - [ ] [MACE GitHub Repository](https://github.com/ACEsuit/mace) — try to look through the code and train a MACE-small on a subset of a dataset.
-- [ ] Running the MACE tutorials #3
+- [x] Running the MACE tutorials #3
 
 ### Reading
 - [ ] [Computing hydration free energies of small molecules with first principles accuracy](https://arxiv.org/abs/2405.18171)
 - [ ] [Stochastic Interpolants: A Unifying Framework for Flows and Diffusions](https://arxiv.org/abs/2303.08797)
 
 ### Videos
-- [ ] [Machine learning potentials always extrapolate, it does not matter](https://www.youtube.com/watch?v=WgFAZygGV8w)
-- [ ] [Atomic Cluster Expansion: A framework for fast and accurate ML force fields](https://www.youtube.com/watch?v=ja-3UrdSRi4)
-- [ ] [Orb-v3: atomistic simulation at scale | Tim Duignan & Sander Vandenhaute](https://www.youtube.com/watch?v=pRbvRl0_FyE)
+- [x] [Machine learning potentials always extrapolate, it does not matter](https://www.youtube.com/watch?v=WgFAZygGV8w)
+- [x] [Atomic Cluster Expansion: A framework for fast and accurate ML force fields](https://www.youtube.com/watch?v=ja-3UrdSRi4)
+- [x] [Orb-v3: atomistic simulation at scale | Tim Duignan & Sander Vandenhaute](https://www.youtube.com/watch?v=pRbvRl0_FyE)
 - [ ] [Day 3 - Harnessing Geometric ML for Molecular Design | Michael Bronstein](https://www.youtube.com/watch?v=zsIyzLtwAHY)
-- [ ] [Every video on The Computational Chemist YouTube channel](https://www.youtube.com/@thecomputationalchemist)
+- [ ] [The Computational Chemist YouTube channel](https://www.youtube.com/@thecomputationalchemist)
 - [ ] [Open Catalyst Project videos](https://www.youtube.com/@opencatalystproject3509/videos?app=desktop)
 - [x] [MACE: Higher Order Equivariant Message Passing Neural Networks for Fast and Accurate Force Fields](https://www.youtube.com/watch?v=I9Y2le9e74A&ab_channel=ValenceLabs)
 
 ### Completed Task
 
+9/06/25
 - Run the mace tutorials and did a subproject by evaluating the computation efficiency of each step of the mace schematic
 - Read MACE paper and notes
 - Main thing to look at is the equivarient MPNNs tensor product (equation 8 in paper)
+
+10/06/25
+- watched: the Machine learning potentials always extrapolate, it does not matter --> can we obtain good prediction accuracy using a fraction of the feature dimensions? yes but wea re still working in extrapolation: the psace is not small enough to gall into the interpolation regime
+- watched: Atomic Cluster Expansion: A framework for fast and accurate ML force fields
+- watched: Orb-v3: atomistic simulation at scale | Tim Duignan & Sander Vandenhaute
+- Questions: why are the videos useful for what i do, they seem quite theoretical but not quite related to understand how to speed up the architecture of MACE? no?
