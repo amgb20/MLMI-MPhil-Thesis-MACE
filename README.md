@@ -25,20 +25,38 @@ Coding notes can be accessed in [Tutorial Notes](Notes/Tutorials/T03-MACE-Theory
 - [x] [Machine learning potentials always extrapolate, it does not matter](https://www.youtube.com/watch?v=WgFAZygGV8w)
 - [x] [Atomic Cluster Expansion: A framework for fast and accurate ML force fields](https://www.youtube.com/watch?v=ja-3UrdSRi4)
 - [x] [Orb-v3: atomistic simulation at scale | Tim Duignan & Sander Vandenhaute](https://www.youtube.com/watch?v=pRbvRl0_FyE)
-- [ ] [Day 3 - Harnessing Geometric ML for Molecular Design | Michael Bronstein](https://www.youtube.com/watch?v=zsIyzLtwAHY)
+- [x] [Day 3 - Harnessing Geometric ML for Molecular Design | Michael Bronstein](https://www.youtube.com/watch?v=zsIyzLtwAHY)
 - [ ] [The Computational Chemist YouTube channel](https://www.youtube.com/@thecomputationalchemist)
-- [ ] [Open Catalyst Project videos](https://www.youtube.com/@opencatalystproject3509/videos?app=desktop)
+- [x] [Open Catalyst Project videos](https://www.youtube.com/@opencatalystproject3509/videos?app=desktop)
 - [x] [MACE: Higher Order Equivariant Message Passing Neural Networks for Fast and Accurate Force Fields](https://www.youtube.com/watch?v=I9Y2le9e74A&ab_channel=ValenceLabs)
 
-### Completed Task
+## Completed Task
 
 9/06/25
 - Run the mace tutorials and did a subproject by evaluating the computation efficiency of each step of the mace schematic
 - Read MACE paper and notes
 - Main thing to look at is the equivarient MPNNs tensor product (equation 8 in paper)
 
+---
+
 10/06/25
 - watched: the Machine learning potentials always extrapolate, it does not matter --> can we obtain good prediction accuracy using a fraction of the feature dimensions? yes but wea re still working in extrapolation: the psace is not small enough to gall into the interpolation regime
 - watched: Atomic Cluster Expansion: A framework for fast and accurate ML force fields
 - watched: Orb-v3: atomistic simulation at scale | Tim Duignan & Sander Vandenhaute
+- watched: Day 3 - Harnessing Geometric ML for Molecular Design | Michael Bronstein
+- watched all videos from Open Catalyst Project videos
 - Questions: why are the videos useful for what i do, they seem quite theoretical but not quite related to understand how to speed up the architecture of MACE? no?
+- question: check whether mace has been impleemented to do so(3) to so(2): [video link from open catalyst min 17](https://www.youtube.com/watch?v=Y6JwgqAQpKI&list=PLU7acyFOb6DXgCTAi2TwKXaFD_i3C6hSL&index=6&ab_channel=OpenCatalystProject) and paper link [Reducing SO(3) Convolutions to SO(2) for Efficient Equivariant GNNs](https://proceedings.mlr.press/v202/passaro23a/passaro23a.pdf?utm_source=chatgpt.com)
+
+### 🔧 What SO(2) axis-alignment would add
+
+* **Axis alignment** rotates each edge's coordinate frame so its radial vector maps to a fixed axis.
+* This simplifies equivariance to only rotations around that axis—an **SO(2)** problem.
+* It **sparsifies** the Clebsch–Gordan tensors, reducing tensor-product complexity from **O(L⁶)** to **O(L³)** ([proceedings.mlr.press][1]).
+* Models like **eSCN** already use this trick, but it's **not yet implemented in MACE** out-of-the-box.
+
+---
+
+11/06/25
+
+- coding: did the mace tutorial 1 and 2

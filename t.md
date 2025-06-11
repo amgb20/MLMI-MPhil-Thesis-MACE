@@ -1,59 +1,45 @@
-
-## 🔬 **Low-Precision Training: What Can Be Tested**
-
-Here's what you can test or experiment with **today** to address these computational bottlenecks using **low-precision techniques**:
-
-| **Test/Strategy**                             | **Where to Apply**                         | **Expected Benefit**                            | **Tools to Use**                                                             |
-| --------------------------------------------- | ------------------------------------------ | ----------------------------------------------- | ---------------------------------------------------------------------------- |
-| **Mixed-Precision Training**                  | Everywhere except CG and SH ops            | 2–3× speedup, lower memory                      | `torch.cuda.amp` (PyTorch) or `jax.lax.precision`                            |
-| **Low-Precision Tensor Contractions**         | Eq. (10) — node-level loop contractions    | Significant speedup at L ≥ 1 or ν ≥ 2           | Implement custom fused kernels or use `Triton`, `XLA`, `NVIDIA Tensor Cores` |
-| **Keep Clebsch–Gordan / SH Terms in Float32** | Tensor ops involving rotation-equivariance | Avoids equivariance-breaking artifacts          | Store CG/Ylm tables as `float32` constants                                   |
-| **Loss Scaling**                              | During backpropagation                     | Prevents underflow in float16 gradients         | Use `GradScaler` in PyTorch                                                  |
-| **Quantize MLP Readout Layers**               | Final site energy prediction               | 8-bit quantization viable without accuracy loss | Use `torch.quantization` or ONNX INT8                                        |
+MACE’s convolution is **fundamentally SO(3)-equivariant**, meaning it respects all 3D rotations—but it does **not currently** implement the **SO(2) axis-alignment trick** described in Passaro et al. (2023) and used in eSCN.
 
 ---
 
-## 📈 **Parallelism and Training Time Gains**
+### ✅ What MACE does
 
-* **Observation**: MACE with L=0 is \~10× faster than NequIP/BOTNet while maintaining accuracy.
-* **Training speedup**: MACE reaches BOTNet-level accuracy in **30 mins vs 24+ hrs**.
-* **Reason**: Its tensor-based message formulation + small receptive field reduces GPU memory contention and communication overhead → **better scaling across multiple GPUs**.
-
-This makes it especially attractive for **active learning workflows**, where fast retraining and re-evaluation are crucial.
+* Uses **full SO(3) tensor products** (via Clebsch–Gordan algebra) for equivariant message passing—no explicit axis alignment is performed ([proceedings.mlr.press][1], [papers.neurips.cc][2]).
+* Computation remains faithful to 3D rotations throughout, with complexity typical for SO(3) operations.
 
 ---
 
-## 🧪 **Future/Experimental Ideas**
+### 🔧 What SO(2) axis-alignment would add
 
-You could also explore:
-
-1. **Layer-wise Precision Scaling**:
-
-   * Use float16 for readout and intermediate MLPs.
-   * Use float32 for initial feature computation and CG terms.
-
-2. **Progressive Correlation Order**:
-
-   * Start training with ν = 1, then progressively raise it.
-   * Benefit: lower early-phase compute + stable convergence.
-
-3. **Neural Compression of Species Embeddings**:
-
-   * Replace fixed species embeddings with **low-rank or quantized embeddings**.
-   * Especially helpful for large-S datasets (e.g., periodic table-sized chemical space).
-
-4. **Operator Fusion + Kernel Optimization**:
-
-   * Fuse radial, angular, and contraction steps to reduce memory reads/writes.
-   * Implement with Triton or TVM for custom GPUs.
+* **Axis alignment** rotates each edge's coordinate frame so its radial vector maps to a fixed axis.
+* This simplifies equivariance to only rotations around that axis—an **SO(2)** problem.
+* It **sparsifies** the Clebsch–Gordan tensors, reducing tensor-product complexity from **O(L⁶)** to **O(L³)** ([proceedings.mlr.press][1]).
+* Models like **eSCN** already use this trick, but it's **not yet implemented in MACE** out-of-the-box.
 
 ---
 
-## ✅ **Takeaway Summary**
+### 🆚 Comparison
 
-* **Computation bottlenecks in MACE** are dominated by equivariant tensor algebra, not neighbor gathering.
-* **MACE already addresses** some scaling issues with smart architectural design (species compression, small receptive field, loop contractions).
-* **Low-precision training and mixed-precision inference** are highly promising: they target exactly the bottlenecks that remain.
-* With current tools (PyTorch AMP, JAX, Triton), you can **immediately test** these strategies for real-world speedup.
+| Feature                           | MACE (current)  | MACE w/ SO(2) axis-alignment |
+| --------------------------------- | --------------- | ---------------------------- |
+| Equivariance Group                | SO(3)           | SO(3) → executed as SO(2)    |
+| Tensor-product computational cost | Standard, dense | Sparse, more efficient       |
+| Implementation in code            | ✔️ Yes          | ❌ Not yet                    |
+| Used in other models              | —               | ✔️ eSCN                      |
 
-Let me know if you'd like a benchmarking plan or starter script to begin testing these strategies.
+---
+
+### 🧪 So… Is SO(2) implemented yet in MACE?
+
+**Not currently** in the official JESU/Torch MACE repository. While the **conceptual exponent reduction** to SO(2) is well-known and used in eSCN, it **hasn't been integrated** into the standard MACE codebase.
+
+However, the architecture is well-structured, so you *could* prototype this optimization—particularly within the `conv_tp` operation, by:
+
+1. Rotating input edge data so that radial vectors align to a canonical axis,
+2. Applying the tensor product in this reduced frame,
+3. Optionally rotating outputs back (or keeping consistent with subsequent operations).
+
+Would you like help sketching or implementing that optimization?
+
+[1]: https://proceedings.mlr.press/v202/passaro23a/passaro23a.pdf?utm_source=chatgpt.com "[PDF] Reducing SO(3) Convolutions to SO(2) for Efficient Equivariant GNNs"
+[2]: https://papers.neurips.cc/paper_files/paper/2022/file/4a36c3c51af11ed9f34615b81edb5bbc-Paper-Conference.pdf?utm_source=chatgpt.com "[PDF] MACE: Higher Order Equivariant Message Passing Neural Networks ..."
