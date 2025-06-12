@@ -1,6 +1,78 @@
 # MLMI-MPhil-Thesis-MACE
 This is a University of Cambridge MLMI MPhil Thesis on **Speeding up MACE**
 
+
+## Virtual Environement Instructions
+
+Activate the conda venv:
+```
+conda activate mace_gpu_env
+```
+
+To install libraries:
+```
+conda ...
+```
+
+## HPC Instructions
+
+Interactive nodes on CPU:
+```
+sintr -A MLMI-ab3149-SL2-CPU -p icelake -N1 -n1 -t 1:0:0 --qos=INTR
+```
+
+Interactive nodes on GPU:
+```
+sintr -A MLMI-ab3149-SL2-GPU -p ampere --gres=gpu:1 -N1 -n1 -t 1:0:0 --qos=INTR
+```
+
+Full Sbatch job:
+```
+sbatch <slurm file>
+```
+
+Check the queue position:
+```
+squeue -u ab3149
+```
+
+## How to run Jupyter Notebook with HPC interactive CPU/GPU node
+
+This guide assumes you're using a GPU partition and want to launch Jupyter inside a Conda environment with CUDA support.
+
+### ⚙️ 1. Start an Interactive GPU Session
+
+```
+sintr -A MLMI-ab3149-SL2-GPU -p ampere --gres=gpu:1 -N1 -n1 -t 1:00:00 --qos=INTR
+```
+
+### 🐍 2. Activate Your Conda Environment
+```
+conda activate <your_env>
+```
+
+### 📓 3. Launch Jupyter Notebook on the GPU Node
+```
+jupyter notebook --no-browser --ip=0.0.0.0 --port=8081
+```
+
+### 🔁 4. Open Tunnel from Your Local Machine
+In a terminal on your laptop, forward the port:
+```
+ssh -L 8081:gpu-q-8:8081 <your-crsid>@login-e-4.hpc.cam.ac.uk
+```
+- Replace gpu-q-8 with your node name (from squeue)
+
+- Replace login-e-4 with the login node you used
+
+### 🌐 5. Access Jupyter Notebook in Browser
+```
+jupyter notebook list
+```
+
+And open the link or copy paste the token in the link in step 3
+
+
 ## TODO List
 
 ### Open questions
@@ -60,3 +132,11 @@ Coding notes can be accessed in [Tutorial Notes](Notes/Tutorials/T03-MACE-Theory
 11/06/25
 
 - coding: did the mace tutorial 1 and 2
+
+---
+
+12/06/25
+
+- read the high precision low accuracy paper
+- implement the HALP paper on mace? pleasae refer to [link for HALP](./Notes%20Markdown/General%20Concepts/HALP_to_MACE.md)
+
