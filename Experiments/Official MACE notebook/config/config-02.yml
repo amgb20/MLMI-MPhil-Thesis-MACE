@@ -1,0 +1,19 @@
+model: "MACE"
+num_channels: 32
+max_L: 0
+r_max: 4.0
+name: "mace01"
+model_dir: "Experiments/Official MACE notebook/MACE_models"
+log_dir: "Experiments/Official MACE notebook/MACE_models"
+checkpoints_dir: "Experiments/Official MACE notebook/MACE_models"
+results_dir: "Experiments/Official MACE notebook/MACE_models"
+train_file: "Experiments/Official MACE notebook/data/solvent_xtb_train_200.xyz"
+valid_fraction: 0.10
+test_file: "Experiments/Official MACE notebook/data/solvent_xtb_test.xyz"
+energy_key: "energy_xtb"
+forces_key: "forces_xtb"
+device: cuda
+batch_size: 10
+max_num_epochs: 100
+swa: True
+seed: 123

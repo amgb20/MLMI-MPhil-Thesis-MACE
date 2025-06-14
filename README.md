@@ -5,73 +5,134 @@ This is a University of Cambridge MLMI MPhil Thesis on **Speeding up MACE**
 ## Virtual Environement Instructions
 
 Activate the conda venv:
-```
+```bash
 conda activate mace_gpu_env
 ```
 
 To install libraries:
-```
+```bash
 conda ...
 ```
 
 ## HPC Instructions
 
 Interactive nodes on CPU:
-```
+```bash
 sintr -A MLMI-ab3149-SL2-CPU -p icelake -N1 -n1 -t 1:0:0 --qos=INTR
 ```
 
 Interactive nodes on GPU:
-```
+```bash
 sintr -A MLMI-ab3149-SL2-GPU -p ampere --gres=gpu:1 -N1 -n1 -t 1:0:0 --qos=INTR
 ```
 
 Full Sbatch job:
-```
+```bash
 sbatch <slurm file>
 ```
 
 Check the queue position:
-```
+```bash
 squeue -u ab3149
 ```
 
-## How to run Jupyter Notebook with HPC interactive CPU/GPU node
+---
+## 🚀 How to Run Jupyter Notebook on HPC with Interactive GPU Node
 
-This guide assumes you're using a GPU partition and want to launch Jupyter inside a Conda environment with CUDA support.
+This guide sets up a Jupyter Notebook on a **GPU node** using a **Conda environment with CUDA support**, and allows you to connect from your **local IDE or browser**.
 
-### ⚙️ 1. Start an Interactive GPU Session
+---
 
-```
+### 🖥️ Terminal 1 (Local Terminal): Start Interactive GPU Session
+
+Start an interactive job using SLURM:
+
+```bash
 sintr -A MLMI-ab3149-SL2-GPU -p ampere --gres=gpu:1 -N1 -n1 -t 1:00:00 --qos=INTR
 ```
 
-### 🐍 2. Activate Your Conda Environment
-```
-conda activate <your_env>
+✅ Wait for the prompt to place you on a GPU node, e.g. `gpu-q-8`.
+
+---
+
+### 🧠 Terminal 2 (Now on the GPU node): Setup Jupyter
+
+1. **Activate your Conda environment**
+
+```bash
+conda activate mace_gpu_env
 ```
 
-### 📓 3. Launch Jupyter Notebook on the GPU Node
+2. **Check the hostname** (you’ll need this in the next step)
+
+```bash
+hostname
 ```
+
+Example output: `gpu-q-8`
+
+3. **Launch Jupyter Notebook server**
+
+```bash
 jupyter notebook --no-browser --ip=0.0.0.0 --port=8081
 ```
 
-### 🔁 4. Open Tunnel from Your Local Machine
-In a terminal on your laptop, forward the port:
+📌 This will output a URL with a token, like:
+`http://127.0.0.1:8081/?token=xxxxxxxxxxxxxxxx`
+
+---
+
+### 🧼 Terminal 3 (Local Machine): Clean up and Setup SSH Tunnel
+
+1. **(Optional)** Free port 8081 if it's blocked
+
+```bash
+lsof -ti:8081 | xargs kill -9
 ```
+
+2. **Create an SSH Tunnel to the GPU Node**
+
+```bash
 ssh -L 8081:gpu-q-8:8081 <your-crsid>@login-e-4.hpc.cam.ac.uk
 ```
-- Replace gpu-q-8 with your node name (from squeue)
 
-- Replace login-e-4 with the login node you used
+🔁 Replace:
 
-### 🌐 5. Access Jupyter Notebook in Browser
-```
+* `gpu-q-8` with your actual **GPU node name**
+* `login-e-4` with the login node you used
+
+---
+
+### 🌐 Access Jupyter Notebook
+
+* **Option 1**: In browser, go to:
+  `http://127.0.0.1:8081/?token=...` (from Terminal 2)
+
+* **Option 2**: In your IDE (e.g. VSCode, PyCharm):
+
+  * Open a `.ipynb` file
+  * Select: `Kernel > Select Another Kernel > Enter Jupyter URL`
+  * Paste: `http://127.0.0.1:8081/?token=...`
+
+---
+
+### 🧪 Extras
+
+* To view all active notebooks and their tokens:
+
+```bash
 jupyter notebook list
 ```
 
-And open the link or copy paste the token in the link in step 3
+* To shut down Jupyter cleanly:
 
+```bash
+CTRL + C
+```
+
+Then confirm `Shutdown this notebook server (y/[n])?` with `y`.
+
+---
 
 ## TODO List
 
@@ -92,6 +153,7 @@ Coding notes can be accessed in [Tutorial Notes](Notes/Tutorials/T03-MACE-Theory
 ### Reading
 - [ ] [Computing hydration free energies of small molecules with first principles accuracy](https://arxiv.org/abs/2405.18171)
 - [ ] [Stochastic Interpolants: A Unifying Framework for Flows and Diffusions](https://arxiv.org/abs/2303.08797)
+- [ ] [Forces are not enough]
 
 ### Videos
 - [x] [Machine learning potentials always extrapolate, it does not matter](https://www.youtube.com/watch?v=WgFAZygGV8w)
@@ -139,4 +201,50 @@ Coding notes can be accessed in [Tutorial Notes](Notes/Tutorials/T03-MACE-Theory
 
 - read the high precision low accuracy paper
 - implement the HALP paper on mace? pleasae refer to [link for HALP](./Notes%20Markdown/General%20Concepts/HALP_to_MACE.md)
+- one of the main issues that we need to deal with his HPC. it is probably the worst thing ever and it is impossible to work on it, espcacially when you want to use gpu all the time for testing. when you ask for an interactive node (1h max), and get disconnedted, you have to do the process again and again, it is a major downer
 
+- train a small dataset with H, C and O on default precision fp64 and fp32
+
+🧮 Precision Comparison: FP64 vs FP32 (MACE)
+
+| Metric                           | **FP64 (float64)** | **FP32 (float32)** | 📝 Notes                             |
+| -------------------------------- | ------------------ | ------------------ | ------------------------------------ |
+| **Train RMSE Energy (meV/atom)** | **5.7**            | 15.2               | FP64 achieves 2.7× lower energy RMSE |
+| **Train RMSE Forces (meV/Å)**    | 102.6              | 104.2              | Nearly identical force accuracy      |
+| **Train Relative F RMSE (%)**    | 4.71%              | 4.78%              | Negligible difference                |
+| **Valid RMSE Energy (meV/atom)** | **6.3**            | 15.7               | FP64 clearly better (2.5× lower)     |
+| **Valid RMSE Forces (meV/Å)**    | 177.3              | **162.2**          | FP32 slightly better                 |
+| **Valid Relative F RMSE (%)**    | 6.85%              | **6.27%**          | FP32 slightly better                 |
+| **Test RMSE Energy (meV/atom)**  | **6.2**            | 14.9               | FP64 better                          |
+| **Test RMSE Forces (meV/Å)**     | 176.7              | **169.5**          | FP32 slightly better                 |
+| **Test Relative F RMSE (%)**     | 7.71%              | **7.40%**          | FP32 slightly better                 |
+
+---
+
+Resource Usage Comparison
+
+| Metric              | **FP64**  | **FP32**      | 📝 Notes                           |
+| ------------------- | --------- | ------------- | ---------------------------------- |
+| **Total Time**      | 135.7 s   | **125.2 s**   | FP32 is \~8% faster                |
+| **Peak GPU Memory** | 0.41 GB   | **0.42 GB**   | Virtually identical                |
+| **CPU RSS Memory**  | 1545.3 MB | **1664.5 MB** | FP32 uses slightly more CPU memory |
+
+---
+
+Summary
+
+| Aspect                         | Winner      | Notes                                           |
+| ------------------------------ | ----------- | ----------------------------------------------- |
+| **Energy Prediction Accuracy** | 🥇 **FP64** | Consistently lower RMSE across train/valid/test |
+| **Force Prediction Accuracy**  | ⚖️ **Tie**  | FP32 slightly better on validation/test forces  |
+| **Speed**                      | 🥇 **FP32** | \~10 seconds faster                             |
+| **GPU/Memory**                 | ⚖️ **Tie**  | Marginal differences                            |
+
+---
+
+## Homework
+
+- run MACE and print out the shape of all the steps
+- kahan summation --> implrmrny anf unfrtdywsnf ---> understand
+- take the interaction and make a comparispon between fp64/32
+- get rid of linear in conv

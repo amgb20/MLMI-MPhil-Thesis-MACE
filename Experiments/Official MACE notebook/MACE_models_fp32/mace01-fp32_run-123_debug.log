@@ -1,0 +1,334 @@
+2025-06-12 18:49:14.023 INFO: ===========VERIFYING SETTINGS===========
+2025-06-12 18:49:14.025 INFO: MACE version: 0.3.13
+2025-06-12 18:49:14.025 DEBUG: Configuration: Namespace(config='Experiments/Official MACE notebook/config/config-32.yml', name='mace01-fp32', seed=123, work_dir='.', log_dir='Experiments/Official MACE notebook/MACE_models_fp32', model_dir='Experiments/Official MACE notebook/MACE_models_fp32', checkpoints_dir='Experiments/Official MACE notebook/MACE_models_fp32', results_dir='Experiments/Official MACE notebook/MACE_models_fp32', downloads_dir='./downloads', device='cuda', default_dtype='float64', distributed=False, log_level='INFO', plot=True, plot_frequency=0, error_table='PerAtomRMSE', model='MACE', r_max=4.0, radial_type='bessel', num_radial_basis=8, num_cutoff_basis=5, pair_repulsion=False, distance_transform='None', interaction='RealAgnosticResidualInteractionBlock', interaction_first='RealAgnosticResidualInteractionBlock', max_ell=3, correlation=3, num_interactions=2, MLP_irreps='16x0e', radial_MLP='[64, 64, 64]', hidden_irreps=32x0e, num_channels=32, max_L=0, gate='silu', scaling='rms_forces_scaling', avg_num_neighbors=1, compute_avg_num_neighbors=True, compute_stress=False, compute_forces=True, train_file='Experiments/Official MACE notebook/data/solvent_xtb_train_200.xyz', valid_file=None, valid_fraction=0.1, test_file='Experiments/Official MACE notebook/data/solvent_xtb_test.xyz', test_dir=None, multi_processed_test=False, num_workers=0, pin_memory=True, atomic_numbers=None, mean=None, std=None, statistics_file=None, E0s=None, foundation_filter_elements=True, heads=None, multiheads_finetuning=True, foundation_head=None, weight_pt_head=1.0, num_samples_pt=10000, force_mh_ft_lr=False, subselect_pt='random', filter_type_pt='none', pt_train_file=None, pt_valid_file=None, foundation_model_elements=False, keep_isolated_atoms=False, energy_key='energy_xtb', forces_key='forces_xtb', virials_key='REF_virials', stress_key='REF_stress', dipole_key='dipole', head_key='head', charges_key='REF_charges', skip_evaluate_heads='pt_head', loss='weighted', forces_weight=100.0, swa_forces_weight=100.0, energy_weight=1.0, swa_energy_weight=1000.0, virials_weight=1.0, swa_virials_weight=10.0, stress_weight=1.0, swa_stress_weight=10.0, dipole_weight=1.0, swa_dipole_weight=1.0, config_type_weights='{"Default":1.0}', huber_delta=0.01, optimizer='adam', beta=0.9, batch_size=10, valid_batch_size=10, lr=0.01, swa_lr=0.001, weight_decay=5e-07, amsgrad=True, scheduler='ReduceLROnPlateau', lr_factor=0.8, scheduler_patience=50, lr_scheduler_gamma=0.9993, swa=True, start_swa=75, lbfgs=False, ema=False, ema_decay=0.99, max_num_epochs=100, patience=2048, foundation_model=None, foundation_model_readout=True, eval_interval=1, keep_checkpoints=False, save_all_checkpoints=False, restart_latest=False, save_cpu=False, clip_grad=10.0, dry_run=False, enable_cueq=False, wandb=False, wandb_dir=None, wandb_project='', wandb_entity='', wandb_name='', wandb_log_hypers=['num_channels', 'max_L', 'correlation', 'lr', 'swa_lr', 'weight_decay', 'batch_size', 'max_num_epochs', 'start_swa', 'energy_weight', 'forces_weight'], key_specification=KeySpecification(info_keys={'energy': 'energy_xtb', 'stress': 'REF_stress', 'virials': 'REF_virials', 'dipole': 'dipole', 'head': 'head'}, arrays_keys={'forces': 'forces_xtb', 'charges': 'REF_charges'}))
+2025-06-12 18:49:14.025 INFO: CUDA version: 11.8, CUDA device: 0
+2025-06-12 18:49:14.027 DEBUG: Popen(['git', 'cat-file', '--batch-check'], cwd=/rds/user/ab3149/hpc-work/MLMI-MPhil-Thesis-MACE, stdin=<valid stream>, shell=False, universal_newlines=False)
+2025-06-12 18:49:14.049 DEBUG: Current Git commit: fa5e3647c5673ff6e29a29f028e2c76fb97d258d
+2025-06-12 18:49:14.049 INFO: ===========LOADING INPUT DATA===========
+2025-06-12 18:49:14.050 INFO: Using heads: ['Default']
+2025-06-12 18:49:14.050 INFO: Using the key specifications to parse data:
+2025-06-12 18:49:14.050 INFO: Default: KeySpecification(info_keys={'energy': 'energy_xtb', 'stress': 'REF_stress', 'virials': 'REF_virials', 'dipole': 'dipole', 'head': 'head'}, arrays_keys={'forces': 'forces_xtb', 'charges': 'REF_charges'})
+2025-06-12 18:49:14.051 INFO: =============    Processing head Default     ===========
+2025-06-12 18:49:14.051 DEBUG: Loading training file: Experiments/Official MACE notebook/data/solvent_xtb_train_200.xyz
+2025-06-12 18:49:14.114 INFO: Using isolated atom energies from training file
+2025-06-12 18:49:14.120 INFO: Training set 1/1 [energy: 200, stress: 0, virials: 0, dipole components: 0, head: 200, forces: 200, charges: 0]
+2025-06-12 18:49:14.121 INFO: Total Training set [energy: 200, stress: 0, virials: 0, dipole components: 0, head: 200, forces: 200, charges: 0]
+2025-06-12 18:49:14.122 INFO: No validation set provided, splitting training data instead.
+2025-06-12 18:49:14.123 INFO: Using random 10% of training set for validation with indices saved in: ./valid_indices_123.txt
+2025-06-12 18:49:14.124 INFO: Random Split Training set [energy: 180, stress: 0, virials: 0, dipole components: 0, head: 180, forces: 180, charges: 0]
+2025-06-12 18:49:14.125 INFO: Random Split Validation set [energy: 20, stress: 0, virials: 0, dipole components: 0, head: 20, forces: 20, charges: 0]
+2025-06-12 18:49:14.406 INFO: Test set 1/1 [energy: 1000, stress: 0, virials: 0, dipole components: 0, head: 1000, forces: 1000, charges: 0]
+2025-06-12 18:49:14.411 INFO: Total Test set [energy: 1000, stress: 0, virials: 0, dipole components: 0, head: 1000, forces: 1000, charges: 0]
+2025-06-12 18:49:14.411 DEBUG: Element 1 found in 1 file. Using E0: -10.707211 eV
+2025-06-12 18:49:14.412 DEBUG: Element 6 found in 1 file. Using E0: -48.847445 eV
+2025-06-12 18:49:14.412 DEBUG: Element 8 found in 1 file. Using E0: -102.571173 eV
+2025-06-12 18:49:14.412 INFO: Total number of configurations: train=180, valid=20, tests=[Default_Default: 1000],
+2025-06-12 18:49:14.413 INFO: Atomic Numbers used: [1, 6, 8]
+2025-06-12 18:49:14.413 INFO: Atomic Energies used (z: eV) for head Default: {1: -10.707211383396714, 6: -48.847445262804705, 8: -102.57117256025786}
+2025-06-12 18:49:14.414 INFO: Processing datasets for head 'Default'
+2025-06-12 18:49:14.478 DEBUG: Successfully loaded dataset from ASE files: ['Experiments/Official MACE notebook/data/solvent_xtb_train_200.xyz']
+2025-06-12 18:49:14.478 INFO: Combining 1 list datasets for head 'Default'
+2025-06-12 18:49:14.485 INFO: Head 'Default' training dataset size: 180
+2025-06-12 18:49:14.486 INFO: Computing average number of neighbors
+2025-06-12 18:49:14.525 INFO: Average number of neighbors: 9.86205556634933
+2025-06-12 18:49:14.526 INFO: During training the following quantities will be reported: energy, forces
+2025-06-12 18:49:14.526 INFO: ===========MODEL DETAILS===========
+2025-06-12 18:49:14.565 INFO: Building model
+2025-06-12 18:49:14.566 INFO: Message passing with 32 channels and max_L=0 (32x0e)
+2025-06-12 18:49:14.566 INFO: 2 layers, each with correlation order: 3 (body order: 4) and spherical harmonics up to: l=3
+2025-06-12 18:49:14.567 INFO: 8 radial and 5 basis functions
+2025-06-12 18:49:14.567 INFO: Radial cutoff: 4.0 A (total receptive field for each atom: 8.0 A)
+2025-06-12 18:49:14.567 INFO: Distance transform for radial basis functions: None
+2025-06-12 18:49:14.568 INFO: Hidden irreps: 32x0e
+2025-06-12 18:49:15.489 DEBUG: ScaleShiftMACE(
+  (node_embedding): LinearNodeEmbeddingBlock(
+    (linear): Linear(3x0e -> 32x0e | 96 weights)
+  )
+  (radial_embedding): RadialEmbeddingBlock(
+    (bessel_fn): BesselBasis(r_max=4.0, num_basis=8, trainable=False)
+    (cutoff_fn): PolynomialCutoff(p=5, r_max=4.0)
+  )
+  (spherical_harmonics): SphericalHarmonics()
+  (atomic_energies_fn): AtomicEnergiesBlock(energies=[[-10.7072, -48.8474, -102.5712]])
+  (interactions): ModuleList(
+    (0): RealAgnosticInteractionBlock(
+      (linear_up): Linear(32x0e -> 32x0e | 1024 weights)
+      (conv_tp): TensorProduct(32x0e x 1x0e+1x1o+1x2e+1x3o -> 32x0e+32x1o+32x2e+32x3o | 128 paths | 128 weights)
+      (conv_tp_weights): FullyConnectedNet[8, 64, 64, 64, 128]
+      (linear): Linear(32x0e+32x1o+32x2e+32x3o -> 32x0e+32x1o+32x2e+32x3o | 4096 weights)
+      (skip_tp): FullyConnectedTensorProduct(32x0e+32x1o+32x2e+32x3o x 3x0e -> 32x0e+32x1o+32x2e+32x3o | 12288 paths | 12288 weights)
+      (reshape): reshape_irreps()
+    )
+    (1): RealAgnosticResidualInteractionBlock(
+      (linear_up): Linear(32x0e -> 32x0e | 1024 weights)
+      (conv_tp): TensorProduct(32x0e x 1x0e+1x1o+1x2e+1x3o -> 32x0e+32x1o+32x2e+32x3o | 128 paths | 128 weights)
+      (conv_tp_weights): FullyConnectedNet[8, 64, 64, 64, 128]
+      (linear): Linear(32x0e+32x1o+32x2e+32x3o -> 32x0e+32x1o+32x2e+32x3o | 4096 weights)
+      (skip_tp): FullyConnectedTensorProduct(32x0e x 3x0e -> 32x0e | 3072 paths | 3072 weights)
+      (reshape): reshape_irreps()
+    )
+  )
+  (products): ModuleList(
+    (0-1): 2 x EquivariantProductBasisBlock(
+      (symmetric_contractions): SymmetricContraction(
+        (contractions): ModuleList(
+          (0): Contraction(
+            (contractions_weighting): ModuleList(
+              (0-1): 2 x GraphModule()
+            )
+            (contractions_features): ModuleList(
+              (0-1): 2 x GraphModule()
+            )
+            (weights): ParameterList(
+                (0): Parameter containing: [torch.float64 of size 3x4x32 (GPU 0)]
+                (1): Parameter containing: [torch.float64 of size 3x1x32 (GPU 0)]
+            )
+            (graph_opt_main): GraphModule()
+          )
+        )
+      )
+      (linear): Linear(32x0e -> 32x0e | 1024 weights)
+    )
+  )
+  (readouts): ModuleList(
+    (0): LinearReadoutBlock(
+      (linear): Linear(32x0e -> 1x0e | 32 weights)
+    )
+    (1): NonLinearReadoutBlock(
+      (linear_1): Linear(32x0e -> 16x0e | 512 weights)
+      (non_linearity): Activation [x] (16x0e -> 16x0e)
+      (linear_2): Linear(16x0e -> 1x0e | 16 weights)
+    )
+  )
+  (scale_shift): ScaleShiftBlock(scale=2.1775, shift=0.0000)
+)
+2025-06-12 18:49:15.491 INFO: Total number of parameters: 67472
+2025-06-12 18:49:15.491 INFO: 
+2025-06-12 18:49:15.492 INFO: ===========OPTIMIZER INFORMATION===========
+2025-06-12 18:49:15.492 INFO: Using ADAM as parameter optimizer
+2025-06-12 18:49:15.493 INFO: Batch size: 10
+2025-06-12 18:49:15.493 INFO: Number of gradient updates: 1800
+2025-06-12 18:49:15.493 INFO: Learning rate: 0.01, weight decay: 5e-07
+2025-06-12 18:49:15.494 INFO: WeightedEnergyForcesLoss(energy_weight=1.000, forces_weight=100.000)
+2025-06-12 18:49:15.494 INFO: Stage Two (after 75 epochs) with loss function: WeightedEnergyForcesLoss(energy_weight=1000.000, forces_weight=100.000), with energy weight : 1000.0, forces weight : 100.0 and learning rate : 0.001
+2025-06-12 18:49:15.556 INFO: Using gradient clipping with tolerance=10.000
+2025-06-12 18:49:15.556 INFO: 
+2025-06-12 18:49:15.556 INFO: ===========TRAINING===========
+2025-06-12 18:49:15.557 INFO: Started training, reporting errors on validation set
+2025-06-12 18:49:15.557 INFO: Loss metrics on validation set
+2025-06-12 18:49:15.719 INFO: Initial: head: Default, loss=69.82958959, RMSE_E_per_atom= 6254.31 meV, RMSE_F= 2574.42 meV / A
+2025-06-12 18:49:16.753 INFO: Epoch 0: head: Default, loss=25.67263562, RMSE_E_per_atom= 5321.14 meV, RMSE_F= 1517.84 meV / A
+2025-06-12 18:49:16.754 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-0.pt
+2025-06-12 18:49:17.800 INFO: Epoch 1: head: Default, loss=13.94754107, RMSE_E_per_atom= 4991.97 meV, RMSE_F= 1072.84 meV / A
+2025-06-12 18:49:17.801 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-0.pt
+2025-06-12 18:49:17.804 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-1.pt
+2025-06-12 18:49:18.858 INFO: Epoch 2: head: Default, loss=7.04974770, RMSE_E_per_atom= 4734.48 meV, RMSE_F=  693.96 meV / A
+2025-06-12 18:49:18.859 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-1.pt
+2025-06-12 18:49:18.862 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-2.pt
+2025-06-12 18:49:19.902 INFO: Epoch 3: head: Default, loss=4.68826472, RMSE_E_per_atom= 4364.68 meV, RMSE_F=  528.29 meV / A
+2025-06-12 18:49:19.903 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-2.pt
+2025-06-12 18:49:19.906 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-3.pt
+2025-06-12 18:49:20.986 INFO: Epoch 4: head: Default, loss=4.12765228, RMSE_E_per_atom= 4029.66 meV, RMSE_F=  501.15 meV / A
+2025-06-12 18:49:20.987 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-3.pt
+2025-06-12 18:49:20.990 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-4.pt
+2025-06-12 18:49:22.096 INFO: Epoch 5: head: Default, loss=3.70813137, RMSE_E_per_atom= 3534.08 meV, RMSE_F=  496.55 meV / A
+2025-06-12 18:49:22.097 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-4.pt
+2025-06-12 18:49:22.100 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-5.pt
+2025-06-12 18:49:23.141 INFO: Epoch 6: head: Default, loss=3.03643949, RMSE_E_per_atom= 3095.62 meV, RMSE_F=  457.17 meV / A
+2025-06-12 18:49:23.142 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-5.pt
+2025-06-12 18:49:23.145 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-6.pt
+2025-06-12 18:49:24.174 INFO: Epoch 7: head: Default, loss=2.68508576, RMSE_E_per_atom= 2805.53 meV, RMSE_F=  436.34 meV / A
+2025-06-12 18:49:24.175 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-6.pt
+2025-06-12 18:49:24.178 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-7.pt
+2025-06-12 18:49:25.257 INFO: Epoch 8: head: Default, loss=2.43400603, RMSE_E_per_atom= 2395.21 meV, RMSE_F=  432.41 meV / A
+2025-06-12 18:49:25.259 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-7.pt
+2025-06-12 18:49:25.261 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-8.pt
+2025-06-12 18:49:26.294 INFO: Epoch 9: head: Default, loss=3.44110017, RMSE_E_per_atom= 1994.59 meV, RMSE_F=  553.17 meV / A
+2025-06-12 18:49:27.386 INFO: Epoch 10: head: Default, loss=2.50374073, RMSE_E_per_atom= 1775.17 meV, RMSE_F=  469.65 meV / A
+2025-06-12 18:49:28.456 INFO: Epoch 11: head: Default, loss=2.44036865, RMSE_E_per_atom= 1572.60 meV, RMSE_F=  471.12 meV / A
+2025-06-12 18:49:29.543 INFO: Epoch 12: head: Default, loss=1.62137181, RMSE_E_per_atom= 1247.58 meV, RMSE_F=  383.73 meV / A
+2025-06-12 18:49:29.544 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-8.pt
+2025-06-12 18:49:29.546 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-12.pt
+2025-06-12 18:49:30.583 INFO: Epoch 13: head: Default, loss=1.75438330, RMSE_E_per_atom= 1064.66 meV, RMSE_F=  406.89 meV / A
+2025-06-12 18:49:31.588 INFO: Epoch 14: head: Default, loss=4.52670529, RMSE_E_per_atom=  848.05 meV, RMSE_F=  673.72 meV / A
+2025-06-12 18:49:32.630 INFO: Epoch 15: head: Default, loss=1.67177190, RMSE_E_per_atom=  818.03 meV, RMSE_F=  402.52 meV / A
+2025-06-12 18:49:33.682 INFO: Epoch 16: head: Default, loss=1.49936929, RMSE_E_per_atom=  704.67 meV, RMSE_F=  382.83 meV / A
+2025-06-12 18:49:33.683 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-12.pt
+2025-06-12 18:49:33.686 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-16.pt
+2025-06-12 18:49:34.904 INFO: Epoch 17: head: Default, loss=1.45624101, RMSE_E_per_atom=  546.81 meV, RMSE_F=  379.95 meV / A
+2025-06-12 18:49:34.905 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-16.pt
+2025-06-12 18:49:34.907 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-17.pt
+2025-06-12 18:49:35.936 INFO: Epoch 18: head: Default, loss=0.97841544, RMSE_E_per_atom=  367.14 meV, RMSE_F=  311.38 meV / A
+2025-06-12 18:49:35.937 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-17.pt
+2025-06-12 18:49:35.939 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-18.pt
+2025-06-12 18:49:36.995 INFO: Epoch 19: head: Default, loss=1.01236198, RMSE_E_per_atom=  477.98 meV, RMSE_F=  314.91 meV / A
+2025-06-12 18:49:38.001 INFO: Epoch 20: head: Default, loss=0.99533095, RMSE_E_per_atom=  480.20 meV, RMSE_F=  312.29 meV / A
+2025-06-12 18:49:39.040 INFO: Epoch 21: head: Default, loss=0.80749418, RMSE_E_per_atom=  386.03 meV, RMSE_F=  281.77 meV / A
+2025-06-12 18:49:39.041 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-18.pt
+2025-06-12 18:49:39.044 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-21.pt
+2025-06-12 18:49:40.105 INFO: Epoch 22: head: Default, loss=1.04330272, RMSE_E_per_atom=  388.22 meV, RMSE_F=  321.96 meV / A
+2025-06-12 18:49:41.150 INFO: Epoch 23: head: Default, loss=1.78914272, RMSE_E_per_atom=  346.54 meV, RMSE_F=  424.17 meV / A
+2025-06-12 18:49:42.162 INFO: Epoch 24: head: Default, loss=0.76444331, RMSE_E_per_atom=  378.63 meV, RMSE_F=  274.34 meV / A
+2025-06-12 18:49:42.163 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-21.pt
+2025-06-12 18:49:42.166 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-24.pt
+2025-06-12 18:49:43.223 INFO: Epoch 25: head: Default, loss=0.81464396, RMSE_E_per_atom=  398.30 meV, RMSE_F=  282.73 meV / A
+2025-06-12 18:49:44.265 INFO: Epoch 26: head: Default, loss=1.81274948, RMSE_E_per_atom=  425.65 meV, RMSE_F=  425.12 meV / A
+2025-06-12 18:49:45.245 INFO: Epoch 27: head: Default, loss=1.17716101, RMSE_E_per_atom=  331.52 meV, RMSE_F=  341.67 meV / A
+2025-06-12 18:49:46.266 INFO: Epoch 28: head: Default, loss=1.17909128, RMSE_E_per_atom=  407.03 meV, RMSE_F=  341.03 meV / A
+2025-06-12 18:49:47.315 INFO: Epoch 29: head: Default, loss=0.91390210, RMSE_E_per_atom=  272.95 meV, RMSE_F=  301.71 meV / A
+2025-06-12 18:49:48.295 INFO: Epoch 30: head: Default, loss=0.86697947, RMSE_E_per_atom=  345.07 meV, RMSE_F=  293.02 meV / A
+2025-06-12 18:49:49.304 INFO: Epoch 31: head: Default, loss=0.66504654, RMSE_E_per_atom=  292.19 meV, RMSE_F=  257.09 meV / A
+2025-06-12 18:49:49.305 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-24.pt
+2025-06-12 18:49:49.307 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-31.pt
+2025-06-12 18:49:50.424 INFO: Epoch 32: head: Default, loss=0.52292631, RMSE_E_per_atom=  183.61 meV, RMSE_F=  228.30 meV / A
+2025-06-12 18:49:50.425 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-31.pt
+2025-06-12 18:49:50.428 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-32.pt
+2025-06-12 18:49:51.530 INFO: Epoch 33: head: Default, loss=0.58149826, RMSE_E_per_atom=  207.61 meV, RMSE_F=  240.48 meV / A
+2025-06-12 18:49:52.569 INFO: Epoch 34: head: Default, loss=0.54136262, RMSE_E_per_atom=  234.30 meV, RMSE_F=  231.73 meV / A
+2025-06-12 18:49:53.582 INFO: Epoch 35: head: Default, loss=0.45767571, RMSE_E_per_atom=  222.79 meV, RMSE_F=  213.29 meV / A
+2025-06-12 18:49:53.583 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-32.pt
+2025-06-12 18:49:53.585 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-35.pt
+2025-06-12 18:49:54.622 INFO: Epoch 36: head: Default, loss=0.63373196, RMSE_E_per_atom=  272.94 meV, RMSE_F=  250.71 meV / A
+2025-06-12 18:49:55.635 INFO: Epoch 37: head: Default, loss=0.40168089, RMSE_E_per_atom=  221.06 meV, RMSE_F=  199.61 meV / A
+2025-06-12 18:49:55.636 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-35.pt
+2025-06-12 18:49:55.638 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-37.pt
+2025-06-12 18:49:56.673 INFO: Epoch 38: head: Default, loss=0.73850708, RMSE_E_per_atom=  272.29 meV, RMSE_F=  271.20 meV / A
+2025-06-12 18:49:57.669 INFO: Epoch 39: head: Default, loss=0.79418279, RMSE_E_per_atom=  179.35 meV, RMSE_F=  281.49 meV / A
+2025-06-12 18:49:58.685 INFO: Epoch 40: head: Default, loss=0.80744524, RMSE_E_per_atom=  299.75 meV, RMSE_F=  283.20 meV / A
+2025-06-12 18:49:59.710 INFO: Epoch 41: head: Default, loss=0.78417087, RMSE_E_per_atom=  273.42 meV, RMSE_F=  278.76 meV / A
+2025-06-12 18:50:00.751 INFO: Epoch 42: head: Default, loss=0.54859915, RMSE_E_per_atom=  257.41 meV, RMSE_F=  233.66 meV / A
+2025-06-12 18:50:01.797 INFO: Epoch 43: head: Default, loss=0.42335713, RMSE_E_per_atom=  254.49 meV, RMSE_F=  204.49 meV / A
+2025-06-12 18:50:02.803 INFO: Epoch 44: head: Default, loss=0.68161081, RMSE_E_per_atom=  247.41 meV, RMSE_F=  260.25 meV / A
+2025-06-12 18:50:03.751 INFO: Epoch 45: head: Default, loss=0.43823199, RMSE_E_per_atom=  220.82 meV, RMSE_F=  208.79 meV / A
+2025-06-12 18:50:04.807 INFO: Epoch 46: head: Default, loss=0.68540385, RMSE_E_per_atom=  286.16 meV, RMSE_F=  261.37 meV / A
+2025-06-12 18:50:05.847 INFO: Epoch 47: head: Default, loss=0.72376694, RMSE_E_per_atom=  259.11 meV, RMSE_F=  268.31 meV / A
+2025-06-12 18:50:06.896 INFO: Epoch 48: head: Default, loss=0.75376900, RMSE_E_per_atom=  229.83 meV, RMSE_F=  274.02 meV / A
+2025-06-12 18:50:07.877 INFO: Epoch 49: head: Default, loss=0.49174472, RMSE_E_per_atom=  225.92 meV, RMSE_F=  220.84 meV / A
+2025-06-12 18:50:08.932 INFO: Epoch 50: head: Default, loss=0.54615749, RMSE_E_per_atom=  273.82 meV, RMSE_F=  233.09 meV / A
+2025-06-12 18:50:09.960 INFO: Epoch 51: head: Default, loss=0.88160868, RMSE_E_per_atom=  291.69 meV, RMSE_F=  297.10 meV / A
+2025-06-12 18:50:10.968 INFO: Epoch 52: head: Default, loss=0.53527927, RMSE_E_per_atom=  278.56 meV, RMSE_F=  230.13 meV / A
+2025-06-12 18:50:12.011 INFO: Epoch 53: head: Default, loss=0.52688394, RMSE_E_per_atom=  226.56 meV, RMSE_F=  228.74 meV / A
+2025-06-12 18:50:13.026 INFO: Epoch 54: head: Default, loss=0.63351359, RMSE_E_per_atom=  295.84 meV, RMSE_F=  250.58 meV / A
+2025-06-12 18:50:14.037 INFO: Epoch 55: head: Default, loss=0.52604251, RMSE_E_per_atom=  230.86 meV, RMSE_F=  228.55 meV / A
+2025-06-12 18:50:15.031 INFO: Epoch 56: head: Default, loss=0.45857683, RMSE_E_per_atom=  238.76 meV, RMSE_F=  213.14 meV / A
+2025-06-12 18:50:16.055 INFO: Epoch 57: head: Default, loss=0.45512342, RMSE_E_per_atom=  256.69 meV, RMSE_F=  211.90 meV / A
+2025-06-12 18:50:17.106 INFO: Epoch 58: head: Default, loss=0.84414756, RMSE_E_per_atom=  243.96 meV, RMSE_F=  290.08 meV / A
+2025-06-12 18:50:18.163 INFO: Epoch 59: head: Default, loss=0.36795246, RMSE_E_per_atom=  262.50 meV, RMSE_F=  190.26 meV / A
+2025-06-12 18:50:18.164 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-37.pt
+2025-06-12 18:50:18.166 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-59.pt
+2025-06-12 18:50:19.251 INFO: Epoch 60: head: Default, loss=0.57205961, RMSE_E_per_atom=  234.68 meV, RMSE_F=  238.28 meV / A
+2025-06-12 18:50:20.286 INFO: Epoch 61: head: Default, loss=0.60713200, RMSE_E_per_atom=  275.15 meV, RMSE_F=  244.94 meV / A
+2025-06-12 18:50:21.318 INFO: Epoch 62: head: Default, loss=0.80876109, RMSE_E_per_atom=  330.48 meV, RMSE_F=  283.50 meV / A
+2025-06-12 18:50:22.355 INFO: Epoch 63: head: Default, loss=0.44518121, RMSE_E_per_atom=  274.30 meV, RMSE_F=  209.76 meV / A
+2025-06-12 18:50:23.314 INFO: Epoch 64: head: Default, loss=0.81164591, RMSE_E_per_atom=  280.90 meV, RMSE_F=  284.79 meV / A
+2025-06-12 18:50:24.330 INFO: Epoch 65: head: Default, loss=0.61619053, RMSE_E_per_atom=  260.94 meV, RMSE_F=  247.51 meV / A
+2025-06-12 18:50:25.360 INFO: Epoch 66: head: Default, loss=0.56077509, RMSE_E_per_atom=  270.18 meV, RMSE_F=  236.20 meV / A
+2025-06-12 18:50:26.454 INFO: Epoch 67: head: Default, loss=0.57262579, RMSE_E_per_atom=  245.30 meV, RMSE_F=  238.51 meV / A
+2025-06-12 18:50:27.493 INFO: Epoch 68: head: Default, loss=0.48154767, RMSE_E_per_atom=  316.30 meV, RMSE_F=  217.43 meV / A
+2025-06-12 18:50:28.532 INFO: Epoch 69: head: Default, loss=0.79554773, RMSE_E_per_atom=  278.30 meV, RMSE_F=  281.98 meV / A
+2025-06-12 18:50:29.546 INFO: Epoch 70: head: Default, loss=0.73603366, RMSE_E_per_atom=  306.85 meV, RMSE_F=  270.92 meV / A
+2025-06-12 18:50:30.603 INFO: Epoch 71: head: Default, loss=0.60931181, RMSE_E_per_atom=  265.10 meV, RMSE_F=  246.78 meV / A
+2025-06-12 18:50:31.609 INFO: Epoch 72: head: Default, loss=0.47310285, RMSE_E_per_atom=  279.32 meV, RMSE_F=  216.55 meV / A
+2025-06-12 18:50:32.656 INFO: Epoch 73: head: Default, loss=0.38562415, RMSE_E_per_atom=  240.94 meV, RMSE_F=  195.29 meV / A
+2025-06-12 18:50:33.661 INFO: Epoch 74: head: Default, loss=0.87627027, RMSE_E_per_atom=  228.78 meV, RMSE_F=  295.77 meV / A
+2025-06-12 18:50:33.662 INFO: Changing loss based on Stage Two Weights
+2025-06-12 18:50:34.637 INFO: Epoch 75: head: Default, loss=2.19914740, RMSE_E_per_atom=  125.76 meV, RMSE_F=  249.30 meV / A
+2025-06-12 18:50:34.638 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-75_swa.pt
+2025-06-12 18:50:35.743 INFO: Epoch 76: head: Default, loss=0.71743545, RMSE_E_per_atom=   37.76 meV, RMSE_F=  240.30 meV / A
+2025-06-12 18:50:35.744 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-75_swa.pt
+2025-06-12 18:50:35.746 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-76_swa.pt
+2025-06-12 18:50:36.848 INFO: Epoch 77: head: Default, loss=0.49336874, RMSE_E_per_atom=   17.60 meV, RMSE_F=  215.61 meV / A
+2025-06-12 18:50:36.849 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-76_swa.pt
+2025-06-12 18:50:36.852 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-77_swa.pt
+2025-06-12 18:50:37.908 INFO: Epoch 78: head: Default, loss=0.41164583, RMSE_E_per_atom=   13.28 meV, RMSE_F=  199.16 meV / A
+2025-06-12 18:50:37.909 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-77_swa.pt
+2025-06-12 18:50:37.911 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-78_swa.pt
+2025-06-12 18:50:38.925 INFO: Epoch 79: head: Default, loss=0.47659340, RMSE_E_per_atom=   27.28 meV, RMSE_F=  201.37 meV / A
+2025-06-12 18:50:39.924 INFO: Epoch 80: head: Default, loss=0.38431009, RMSE_E_per_atom=   10.63 meV, RMSE_F=  193.86 meV / A
+2025-06-12 18:50:39.925 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-78_swa.pt
+2025-06-12 18:50:39.927 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-80_swa.pt
+2025-06-12 18:50:40.992 INFO: Epoch 81: head: Default, loss=0.37509598, RMSE_E_per_atom=   14.60 meV, RMSE_F=  188.81 meV / A
+2025-06-12 18:50:40.993 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-80_swa.pt
+2025-06-12 18:50:40.995 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-81_swa.pt
+2025-06-12 18:50:42.049 INFO: Epoch 82: head: Default, loss=0.35106234, RMSE_E_per_atom=    5.62 meV, RMSE_F=  187.25 meV / A
+2025-06-12 18:50:42.050 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-81_swa.pt
+2025-06-12 18:50:42.052 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-82_swa.pt
+2025-06-12 18:50:43.163 INFO: Epoch 83: head: Default, loss=0.43200359, RMSE_E_per_atom=   20.55 meV, RMSE_F=  198.41 meV / A
+2025-06-12 18:50:44.181 INFO: Epoch 84: head: Default, loss=0.35146518, RMSE_E_per_atom=   10.70 meV, RMSE_F=  185.27 meV / A
+2025-06-12 18:50:45.243 INFO: Epoch 85: head: Default, loss=0.32456888, RMSE_E_per_atom=    9.99 meV, RMSE_F=  178.06 meV / A
+2025-06-12 18:50:45.244 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-82_swa.pt
+2025-06-12 18:50:45.246 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-85_swa.pt
+2025-06-12 18:50:46.329 INFO: Epoch 86: head: Default, loss=0.34257185, RMSE_E_per_atom=   13.79 meV, RMSE_F=  180.68 meV / A
+2025-06-12 18:50:47.360 INFO: Epoch 87: head: Default, loss=0.33122571, RMSE_E_per_atom=    6.87 meV, RMSE_F=  181.42 meV / A
+2025-06-12 18:50:48.370 INFO: Epoch 88: head: Default, loss=0.34645779, RMSE_E_per_atom=   11.01 meV, RMSE_F=  183.69 meV / A
+2025-06-12 18:50:49.425 INFO: Epoch 89: head: Default, loss=0.33506820, RMSE_E_per_atom=   11.85 meV, RMSE_F=  179.95 meV / A
+2025-06-12 18:50:50.396 INFO: Epoch 90: head: Default, loss=0.32687664, RMSE_E_per_atom=   12.47 meV, RMSE_F=  177.22 meV / A
+2025-06-12 18:50:51.448 INFO: Epoch 91: head: Default, loss=0.31926197, RMSE_E_per_atom=    8.83 meV, RMSE_F=  177.19 meV / A
+2025-06-12 18:50:51.449 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-85_swa.pt
+2025-06-12 18:50:51.451 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-91_swa.pt
+2025-06-12 18:50:52.509 INFO: Epoch 92: head: Default, loss=0.31088089, RMSE_E_per_atom=    7.80 meV, RMSE_F=  175.29 meV / A
+2025-06-12 18:50:52.510 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-91_swa.pt
+2025-06-12 18:50:52.512 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-92_swa.pt
+2025-06-12 18:50:53.595 INFO: Epoch 93: head: Default, loss=0.33482886, RMSE_E_per_atom=   15.57 meV, RMSE_F=  176.94 meV / A
+2025-06-12 18:50:54.605 INFO: Epoch 94: head: Default, loss=0.31955361, RMSE_E_per_atom=   10.18 meV, RMSE_F=  176.60 meV / A
+2025-06-12 18:50:55.628 INFO: Epoch 95: head: Default, loss=0.36818310, RMSE_E_per_atom=   22.97 meV, RMSE_F=  178.35 meV / A
+2025-06-12 18:50:56.674 INFO: Epoch 96: head: Default, loss=0.33498780, RMSE_E_per_atom=   10.51 meV, RMSE_F=  180.76 meV / A
+2025-06-12 18:50:57.685 INFO: Epoch 97: head: Default, loss=0.28615322, RMSE_E_per_atom=   15.74 meV, RMSE_F=  162.15 meV / A
+2025-06-12 18:50:57.686 DEBUG: Deleting old checkpoint file: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-92_swa.pt
+2025-06-12 18:50:57.688 DEBUG: Saving checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-97_swa.pt
+2025-06-12 18:50:58.710 INFO: Epoch 98: head: Default, loss=0.29369652, RMSE_E_per_atom=    8.27 meV, RMSE_F=  170.05 meV / A
+2025-06-12 18:50:59.757 INFO: Epoch 99: head: Default, loss=0.31285982, RMSE_E_per_atom=    7.87 meV, RMSE_F=  175.84 meV / A
+2025-06-12 18:50:59.758 INFO: Training complete
+2025-06-12 18:50:59.758 INFO: 
+2025-06-12 18:50:59.759 INFO: ===========RESULTS===========
+2025-06-12 18:51:00.116 INFO: Loading checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-59.pt
+2025-06-12 18:51:00.331 INFO: Loaded Stage one model from epoch 59 for evaluation
+2025-06-12 18:51:00.331 INFO: Saving model to Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123.model
+2025-06-12 18:51:00.471 INFO: Compiling model, saving metadata to Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_compiled.model
+2025-06-12 18:51:01.115 INFO: Computing metrics for training, validation, and test sets
+2025-06-12 18:51:01.116 INFO: Skipping evaluation for heads: ['pt_head']
+2025-06-12 18:51:01.117 INFO: Evaluating train_Default ...
+2025-06-12 18:51:01.596 INFO: Evaluating valid_Default ...
+2025-06-12 18:51:01.642 INFO: Error-table on TRAIN and VALID:
++---------------+---------------------+------------------+-------------------+
+|  config_type  | RMSE E / meV / atom | RMSE F / meV / A | relative F RMSE % |
++---------------+---------------------+------------------+-------------------+
+| train_Default |          168.0      |        149.4     |          6.86     |
+| valid_Default |          262.5      |        190.3     |          7.36     |
++---------------+---------------------+------------------+-------------------+
+2025-06-12 18:51:01.643 INFO: Evaluating Default_Default ...
+2025-06-12 18:51:04.347 INFO: Error-table on TEST:
++-----------------+---------------------+------------------+-------------------+
+|   config_type   | RMSE E / meV / atom | RMSE F / meV / A | relative F RMSE % |
++-----------------+---------------------+------------------+-------------------+
+| Default_Default |          185.0      |        190.9     |          8.33     |
++-----------------+---------------------+------------------+-------------------+
+2025-06-12 18:51:04.348 DEBUG: Running inference on train_Default dataset
+2025-06-12 18:51:04.800 DEBUG: Running inference on valid_Default dataset
+2025-06-12 18:51:04.843 DEBUG: Running inference on Default_Default dataset
+2025-06-12 18:51:09.858 INFO: Loading checkpoint: Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_epoch-97_swa.pt
+2025-06-12 18:51:09.885 INFO: Loaded Stage two model from epoch 97 for evaluation
+2025-06-12 18:51:09.886 INFO: Saving model to Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_run-123_stagetwo.model
+2025-06-12 18:51:10.069 INFO: Compiling model, saving metadata Experiments/Official MACE notebook/MACE_models_fp32/mace01-fp32_stagetwo_compiled.model
+2025-06-12 18:51:10.701 INFO: Computing metrics for training, validation, and test sets
+2025-06-12 18:51:10.702 INFO: Skipping evaluation for heads: ['pt_head']
+2025-06-12 18:51:10.702 INFO: Evaluating train_Default ...
+2025-06-12 18:51:11.170 INFO: Evaluating valid_Default ...
+2025-06-12 18:51:11.220 INFO: Error-table on TRAIN and VALID:
++---------------+---------------------+------------------+-------------------+
+|  config_type  | RMSE E / meV / atom | RMSE F / meV / A | relative F RMSE % |
++---------------+---------------------+------------------+-------------------+
+| train_Default |           15.2      |        104.2     |          4.78     |
+| valid_Default |           15.7      |        162.2     |          6.27     |
++---------------+---------------------+------------------+-------------------+
+2025-06-12 18:51:11.221 INFO: Evaluating Default_Default ...
+2025-06-12 18:51:13.857 INFO: Error-table on TEST:
++-----------------+---------------------+------------------+-------------------+
+|   config_type   | RMSE E / meV / atom | RMSE F / meV / A | relative F RMSE % |
++-----------------+---------------------+------------------+-------------------+
+| Default_Default |           14.9      |        169.5     |          7.40     |
++-----------------+---------------------+------------------+-------------------+
+2025-06-12 18:51:13.858 DEBUG: Running inference on train_Default dataset
+2025-06-12 18:51:14.298 DEBUG: Running inference on valid_Default dataset
+2025-06-12 18:51:14.345 DEBUG: Running inference on Default_Default dataset
+2025-06-12 18:51:19.254 INFO: Done
