@@ -13,7 +13,7 @@ def train_mace(config_file_path):
 
 if __name__ == "__main__":
     print(f"PyTorch default dtype: {torch.get_default_dtype()}")
-    # set default dtype to float64
+    # set default dtycindape to float64
     torch.set_default_dtype(torch.float64)
     print(f"PyTorch new default dtype: {torch.get_default_dtype()}")
 
