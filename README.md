@@ -248,3 +248,24 @@ Summary
 - kahan summation --> implrmrny anf unfrtdywsnf ---> understand
 - take the interaction and make a comparispon between fp64/32
 - get rid of linear in conv
+
+---
+
+14-15/06/25
+
+- i have set up the dev environment to debug inside the core architecture of mace
+
+| Component             | Block Shape / Dim              | Schematic Block                                                                                                                        |
+| --------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **Node Attributes**   | (N\_nodes, 3)                  | `species one-hot` at top left                                                                                                          |
+| **Node Features**     | (N\_nodes, 32)                 | `Node embedding h^{(0)}` → input to linear + interaction                                                                               |
+| **Edge Attributes**   | (N\_edges, 16)                 | `Y_lm angular embedding` (Ylm) combined with distance → blue edge attributes                                                           |
+| **Edge Features**     | (N\_edges, 8)                  | `radial embedding`  (top blue radial embedding box)                                                                                    |
+| **Hidden Irreps**     | 32x0e → 32                     | intermediate latent rep within interaction layers (no direct schematic box, but the internal node feature representation after update) |
+| **Edge Irreps**       | 32x0e → 32                     | not explicit in diagram, but part of processed edge latent features                                                                    |
+| **Target Irreps**     | 32x0e+32x1o+32x2e+32x3o → 512  | target space of each conv / linear in interaction block (output of `Neighbour sum + linear`, input to `Product`)                       |
+| **Linear Up Out**     | (N\_nodes, 32)                 | `Linear` box right after node features                                                                                                 |
+| **Conv TP Out (msg)** | (N\_edges, 512)                | `One-particle basis conv_tp` box (before aggregation)                                                                                  |
+| **Message sum (agg)** | (N\_nodes, 512)                | `Neighbour sum + linear` box (aggregated message at node level)                                                                        |
+| **Final Linear Out**  | (N\_nodes, 512)                | `Final linear` that happens after neighbour sum before product                                                                         |
+| **After reshape**     | (N\_nodes, 32, 16) (32×16=512) | output node features `h^{(l+1)}` (green update box at bottom of interaction + product section)                                         |
