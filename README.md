@@ -245,7 +245,7 @@ Summary
 ## Homework
 
 - run MACE and print out the shape of all the steps
-- kahan summation --> implrmrny anf unfrtdywsnf ---> understand
+- kahan summation --> implement anf understand ---> understand
 - take the interaction and make a comparispon between fp64/32
 - get rid of linear in conv
 

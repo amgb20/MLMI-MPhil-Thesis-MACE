@@ -1,73 +1,150 @@
-Great! Let’s map your **table components** to the **blocks in the schematic** you posted.
-I’ll annotate the table accordingly so you can see where each tensor or shape belongs.
+✅ **Great clarification — let’s break this down and refine your task & prompt!**
 
 ---
 
-### 📊 **Interaction Blocks Table with Schematic References**
+## 📌 **What your data is**
 
-| Component             | Block Shape / Dim              | Schematic Block                                                                                                                        |
-| --------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| **Node Attributes**   | (N\_nodes, 3)                  | `species one-hot` at top left                                                                                                          |
-| **Node Features**     | (N\_nodes, 32)                 | `Node embedding h^{(0)}` → input to linear + interaction                                                                               |
-| **Edge Attributes**   | (N\_edges, 16)                 | `Y_lm angular embedding` (Ylm) combined with distance → blue edge attributes                                                           |
-| **Edge Features**     | (N\_edges, 8)                  | `radial embedding`  (top blue radial embedding box)                                                                                    |
-| **Hidden Irreps**     | 32x0e → 32                     | intermediate latent rep within interaction layers (no direct schematic box, but the internal node feature representation after update) |
-| **Edge Irreps**       | 32x0e → 32                     | not explicit in diagram, but part of processed edge latent features                                                                    |
-| **Target Irreps**     | 32x0e+32x1o+32x2e+32x3o → 512  | target space of each conv / linear in interaction block (output of `Neighbour sum + linear`, input to `Product`)                       |
-| **Linear Up Out**     | (N\_nodes, 32)                 | `Linear` box right after node features                                                                                                 |
-| **Conv TP Out (msg)** | (N\_edges, 512)                | `One-particle basis conv_tp` box (before aggregation)                                                                                  |
-| **Message sum (agg)** | (N\_nodes, 512)                | `Neighbour sum + linear` box (aggregated message at node level)                                                                        |
-| **Final Linear Out**  | (N\_nodes, 512)                | `Final linear` that happens after neighbour sum before product                                                                         |
-| **After reshape**     | (N\_nodes, 32, 16) (32×16=512) | output node features `h^{(l+1)}` (green update box at bottom of interaction + product section)                                         |
+👉 `db_full = read('...solvent_xtb.xyz', ':')`
+➡ This loads 5003 configurations from an XYZ file:
 
----
+* Each config = a molecular structure (solvent molecules in different configurations)
+* Each config contains:
 
-### 🌟 How it flows through the schematic
+  * Atomic positions (ASE Atoms object)
+  * Atomic numbers
+  * Possibly energies/forces (XTB computed)
+  * Typically several atoms → multiple nodes
+  * Many atom pairs → multiple edges
 
-✅ **Top embedding**
+💡 **What this gives you for MACE:**
+➡ Nodes = atoms
+➡ Edges = pairs of atoms within cutoff radius
 
-* species one-hot → Node Attributes
-* radial embedding → Edge Features
-* Ylm → Edge Attributes
-
-✅ **Interaction**
-
-* `Linear` → Linear Up Out
-* `conv_tp` → Conv TP Out
-* `Neighbour sum + linear` → Message sum + Final Linear Out
-
-✅ **Product**
-
-* `Product` box → hidden powers B, feeding into update
-* `Update` → After reshape → updated Node Features
-
-✅ **Readout**
-
-* Final node features feed into node energy output
+➡ The data is perfect for your plan: you have many nodes and edges to stress-test precision.
 
 ---
 
-### Example shape walk-through
+## 🎯 **Clarified objective**
 
-If `N = 200`, `E = 1972`:
+✅ You want:
 
-| Stage                   | Example Shape |
-| ----------------------- | ------------- |
-| Node Attributes         | (200, 3)      |
-| Node Features (in)      | (200, 32)     |
-| Edge Attributes         | (1972, 16)    |
-| Edge Features           | (1972, 8)     |
-| Linear Up Out           | (200, 32)     |
-| Conv TP Out             | (1972, 512)   |
-| Message sum / agg       | (200, 512)    |
-| Final Linear Out        | (200, 512)    |
-| After reshape (h^{l+1}) | (200, 32, 16) |
+* Extract embeddings for:
+
+  * **Node features** (node embeddings)
+  * **Edge features** (radial embeddings)
+  * **Edge attributes** (angular embeddings / Ylm)
+
+* Save these embeddings
+
+* Run **interaction block forward pass**:
+
+  * With the saved embeddings as input
+  * In fp64, fp32, fp16
+  * Compare outputs at Neighbour sum + linear
+  * No training — just inference
 
 ---
 
-💡 **Would you like:**
-✅ This as a diagram overlay on your schematic?
-✅ A LaTeX version of the table for a report?
-✅ Annotated schematic with arrows and shapes?
+## ⚡ **Updated AI prompt**
 
-Tell me what format helps most! 🚀
+---
+
+### 🌟 **Prompt**
+
+---
+
+You are tasked with evaluating numerical stability of the MACE *InteractionBlock* using large molecular solvent configurations.
+
+✅ **Objective:**
+
+* Test how floating-point precision (fp64, fp32, fp16) affects outputs of the InteractionBlock
+* Use large real-world molecular data (many nodes + edges) to surface numerical instability
+
+---
+
+✅ **Data:**
+
+* Source: `solvent_xtb.xyz` (5003 configs of solvent molecules, XTB computed)
+* Use: configurations with large numbers of atoms and edges (select largest configs if needed)
+
+---
+
+✅ **Task:**
+
+1️⃣ **Extract embeddings:**
+
+* For a batch of configs, run MACE embedding code to compute:
+
+  * `node_features_fp64` → node embeddings
+  * `edge_features_fp64` → radial embeddings
+  * `edge_attributes_fp64` → angular embeddings
+* Save these to disk for reproducibility
+
+---
+
+2️⃣ **Run forward pass:**
+
+* For each precision (fp64, fp32, fp16):
+
+  * Convert saved embeddings to desired dtype
+  * Run forward through InteractionBlock
+  * Capture outputs at:
+
+    * Neighbour sum + linear stage
+  * Save outputs
+
+---
+
+3️⃣ **Compare outputs:**
+
+* Compute:
+
+  * Mean absolute error: `abs(output_fpX - output_fp64).mean()`
+  * Relative error: `abs(output_fpX - output_fp64).mean() / abs(output_fp64).mean()`
+* Aggregate over configs / batches
+* Save error metrics
+
+---
+
+✅ **Implementation requirements:**
+
+* Use MACE model components in inference-only mode (no training)
+* Ensure consistent random seeds
+* Efficiently handle large configs (N\_nodes ≫ 100, N\_edges ≫ 1000)
+* Save embeddings, outputs, and error metrics in structured files (e.g. .pt, .npy)
+
+---
+
+✅ **Output format:**
+
+| Precision | Abs Error (mean) | Rel Error (mean) |
+| --------- | ---------------- | ---------------- |
+| fp32      | <value>          | <value>          |
+| fp16      | <value>          | <value>          |
+
+---
+
+✅ **Constraints:**
+
+* No training of the model
+* Ensure embeddings are generated once and reused across precision tests
+* Isolate precision as the only variable (identical graph structures, same model weights)
+
+---
+
+## 🚀 **End result**
+
+👉 This prompt clearly instructs an AI agent to:
+
+* Identify and save embeddings
+* Run and compare forward passes at different precision levels
+* Handle your dataset correctly
+
+---
+
+⚡ **Would you like me to draft code for:**
+✅ Extracting and saving embeddings
+✅ Running the precision experiments
+✅ Comparing outputs
+
+? Let me know — I can generate a template for you! 🚀

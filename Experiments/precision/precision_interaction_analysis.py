@@ -4,8 +4,8 @@ import warnings
 
 import torch
 import yaml
+from run_precision import main as mace_run_precision_main
 
-from mace.cli.run_train import main as mace_run_train_main
 from mace.modules import interaction_classes
 from mace.tools.arg_parser import build_default_arg_parser
 from mace.tools.model_script_utils import _build_model
@@ -35,7 +35,7 @@ def train_mace(config_file_path):
     print(f"First layer: {interaction_classes[args.interaction_first].__name__}")
     print(f"Subsequent layers: {interaction_classes[args.interaction].__name__}")
 
-    mace_run_train_main()
+    mace_run_precision_main()
 
 
 if __name__ == "__main__":
@@ -47,7 +47,9 @@ if __name__ == "__main__":
     # verify that we are using cuda
     print(f"Is cuda: {torch.cuda.is_available()}")
 
-    train_config_file = "Experiments/Official MACE notebook/config/config-02_cpu.yml"
+    train_config_file = (
+        "Experiments/Official MACE notebook/config/config-precision-iteraction.yml"
+    )
 
     # add debug flag for showing block sizes
     debug_block_sizes_flag = False

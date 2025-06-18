@@ -15,6 +15,6 @@ results_dir: Experiments/Official MACE notebook/MACE_models
 seed: 123
 show_block_sizes: false
 swa: true
-test_file: Experiments/Official MACE notebook/data/solvent_xtb_test.xyz
-train_file: Experiments/Official MACE notebook/data/solvent_xtb_train_200.xyz
+test_file: Experiments/Official MACE notebook/data/solvent_xtb.xyz
+train_file: Experiments/Official MACE notebook/data/solvent_xtb.xyz
 valid_fraction: 0.1
