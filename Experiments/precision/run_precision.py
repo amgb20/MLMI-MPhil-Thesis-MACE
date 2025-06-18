@@ -96,6 +96,12 @@ def run(args) -> None:
     else:
         rank = int(0)
 
+    # Print if the device is using GPU
+    if args.device == "cuda":
+        logging.info("Using GPU")
+    else:
+        logging.info("Using CPU")
+
     # Setup
     tools.set_seeds(args.seed)
     tools.setup_logger(level=args.log_level, tag=tag, directory=args.log_dir, rank=rank)

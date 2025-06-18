@@ -10,6 +10,8 @@ import numpy as np
 import torch
 from e3nn import o3
 from e3nn.util.jit import compile_mode
+import logging
+from tqdm import tqdm
 
 from mace.modules.radial import ZBLBasis
 from mace.tools.scatter import scatter_sum
@@ -418,6 +420,32 @@ class ScaleShiftMACE(MACE):
         edge_feats, cutoff = self.radial_embedding(
             lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
         )
+        logging.info(f"node_feats.shape: {node_feats.shape}")
+        logging.info(f"edge_attrs.shape: {edge_attrs.shape}")
+        logging.info(f"edge_feats.shape: {edge_feats.shape}")
+        logging.info(f"data['node_attrs'].shape: {data['node_attrs'].shape}")
+        logging.info(f"data['edge_index'].shape: {data['edge_index'].shape}")
+        logging.info(f"data['batch'].shape: {data['batch'].shape}")
+        logging.info(f"data['ptr'].shape: {data['ptr'].shape}")
+        logging.info(f"data['positions'].shape: {data['positions'].shape}")
+        logging.info(f"data['shifts'].shape: {data['shifts'].shape}")
+        logging.info(f"data['cell'].shape: {data['cell'].shape}")
+
+        logging.info(f"==== Finished Embedding ====")
+
+        logging.info(f"==== Converting and saving Embedding outputs to fp64 (default) ====")
+        node_feats_fp64 = self.node_embedding(data["node_attrs"])
+        edge_attrs_fp64 = self.spherical_harmonics(vectors)
+        edge_feats_fp64, cutoff_fp64 = self.radial_embedding(
+            lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
+        )
+
+        logging.info(f"==== check that the embedding outputs are the same dtype ====")
+        logging.info(f"node_feats_fp64.dtype: {node_feats_fp64.dtype}")
+        logging.info(f"edge_attrs_fp64.dtype: {edge_attrs_fp64.dtype}")
+        logging.info(f"edge_feats_fp64.dtype: {edge_feats_fp64.dtype}")
+
+        logging.info(f"==== Finished checking embedding outputs ====")
 
         if hasattr(self, "pair_repulsion"):
             pair_node_energy = self.pair_repulsion_fn(
@@ -431,34 +459,181 @@ class ScaleShiftMACE(MACE):
         # Interactions
         node_es_list = [pair_node_energy]
         node_feats_list: List[torch.Tensor] = []
+        dtype_map = {
+            "fp64": torch.float64,
+            "fp32": torch.float32,
+            "fp16": torch.float16
+        }
 
-        for i, (interaction, product, readout) in enumerate(
+        results = {d: [] for d in dtype_map}
+        results_abs = {d: [] for d in dtype_map}
+        results_rel = {d: [] for d in dtype_map}
+        
+        # Initialize statistics storage for averaging across all layers
+        all_layer_stats = {
+            "fp32": {"abs": [], "rel": []},
+            "fp16": {"abs": [], "rel": []}
+        }
+        
+        for i, (interaction, product, readout) in tqdm(enumerate(
             zip(self.interactions, self.products, self.readouts)
-        ):
+        )):
             node_attrs_slice = data["node_attrs"]
             if is_lammps and i > 0:
                 node_attrs_slice = node_attrs_slice[: lammps_natoms[0]]
-            node_feats, sc = interaction(
-                node_attrs=node_attrs_slice,
-                node_feats=node_feats,
-                edge_attrs=edge_attrs,
-                edge_feats=edge_feats,
-                edge_index=data["edge_index"],
-                cutoff=cutoff,
-                first_layer=(i == 0),
-                lammps_class=lammps_class,
-                lammps_natoms=lammps_natoms,
-            )
+
+            logging.info(f"==== Entering interaction {i} ====")
+            logging.info(f"==== Entering dtype loop ====")
+            for d in tqdm(dtype_map):
+                torch.set_default_dtype(dtype_map[d])
+                logging.info(f"torch.get_default_dtype(): {torch.get_default_dtype()}")
+                
+                # Convert input tensors to the target dtype
+                node_feats = node_feats_fp64.clone().to(dtype_map[d])
+                edge_attrs = edge_attrs_fp64.clone().to(dtype_map[d])
+                edge_feats = edge_feats_fp64.clone().to(dtype_map[d])
+                node_attrs_slice = node_attrs_slice.clone().to(dtype_map[d])
+                cutoff = cutoff.to(dtype_map[d]) if cutoff is not None else None
+
+                data_converted = {}
+                for key, value in data.items():
+                    if torch.is_tensor(value):
+                        data_converted[key] = value.to(dtype_map[d])
+                    else:
+                        data_converted[key] = value
+   
+                
+                # Convert the interaction block to the desired dtype
+                interaction = interaction.to(dtype_map[d])
+                
+                node_feats, sc = interaction(
+                    node_attrs=node_attrs_slice,
+                    node_feats=node_feats,
+                    edge_attrs=edge_attrs,
+                    edge_feats=edge_feats,
+                    edge_index=data["edge_index"],
+                    cutoff=cutoff,
+                    first_layer=(i == 0),
+                    lammps_class=lammps_class,
+                    lammps_natoms=lammps_natoms,
+                )
+                logging.info(f"node_feats.shape after interaction: {node_feats.shape}")
+                logging.info(f"node_feats.dtype: {node_feats.dtype}")
+                # append the node_feats values for a specific dtype
+                results[d].append(node_feats)
+            
+            # Then for the comparison, compute meaningful statistics:
+            logging.info(f"==== Comparing fp64 vs fp32 ====")
+            tensor_fp64 = results["fp64"][0].to(torch.float64)
+            tensor_fp32 = results["fp32"][0].to(torch.float64)
+
+            abs_diff_fp32 = torch.abs(tensor_fp64 - tensor_fp32)
+            rel_diff_fp32 = torch.abs(tensor_fp64 - tensor_fp32) / (torch.abs(tensor_fp64) + 1e-12)
+
+            max_abs_diff_fp32 = torch.max(abs_diff_fp32).item()
+            mean_abs_diff_fp32 = torch.mean(abs_diff_fp32).item()
+            std_abs_diff_fp32 = torch.std(abs_diff_fp32).item()
+
+            max_rel_diff_fp32 = torch.max(rel_diff_fp32).item()
+            mean_rel_diff_fp32 = torch.mean(rel_diff_fp32).item()
+            std_rel_diff_fp32 = torch.std(rel_diff_fp32).item()
+
+            logging.info(f"fp64 vs fp32 - Absolute difference - Max: {max_abs_diff_fp32:.2e}, Mean: {mean_abs_diff_fp32:.2e}, Std: {std_abs_diff_fp32:.2e}")
+            logging.info(f"fp64 vs fp32 - Relative difference - Max: {max_rel_diff_fp32:.2e}, Mean: {mean_rel_diff_fp32:.2e}, Std: {std_rel_diff_fp32:.2e}")
+
+            logging.info(f"==== Comparing fp64 vs fp16 ====")
+            tensor_fp16 = results["fp16"][0].to(torch.float64)
+
+            abs_diff_fp16 = torch.abs(tensor_fp64 - tensor_fp16)
+            rel_diff_fp16 = torch.abs(tensor_fp64 - tensor_fp16) / (torch.abs(tensor_fp64) + 1e-12)
+
+            max_abs_diff_fp16 = torch.max(abs_diff_fp16).item()
+            mean_abs_diff_fp16 = torch.mean(abs_diff_fp16).item()
+            std_abs_diff_fp16 = torch.std(abs_diff_fp16).item()
+
+            max_rel_diff_fp16 = torch.max(rel_diff_fp16).item()
+            mean_rel_diff_fp16 = torch.mean(rel_diff_fp16).item()
+            std_rel_diff_fp16 = torch.std(rel_diff_fp16).item()
+
+            logging.info(f"fp64 vs fp16 - Absolute difference - Max: {max_abs_diff_fp16:.2e}, Mean: {mean_abs_diff_fp16:.2e}, Std: {std_abs_diff_fp16:.2e}")
+            logging.info(f"fp64 vs fp16 - Relative difference - Max: {max_rel_diff_fp16:.2e}, Mean: {mean_rel_diff_fp16:.2e}, Std: {std_rel_diff_fp16:.2e}")
+
+            # Store statistics for this layer
+            all_layer_stats["fp32"]["abs"].append({
+                'max': max_abs_diff_fp32,
+                'mean': mean_abs_diff_fp32,
+                'std': std_abs_diff_fp32
+            })
+            all_layer_stats["fp32"]["rel"].append({
+                'max': max_rel_diff_fp32,
+                'mean': mean_rel_diff_fp32,
+                'std': std_rel_diff_fp32
+            })
+            
+            all_layer_stats["fp16"]["abs"].append({
+                'max': max_abs_diff_fp16,
+                'mean': mean_abs_diff_fp16,
+                'std': std_abs_diff_fp16
+            })
+            all_layer_stats["fp16"]["rel"].append({
+                'max': max_rel_diff_fp16,
+                'mean': mean_rel_diff_fp16,
+                'std': std_rel_diff_fp16
+            })
+
+            logging.info(f"==== Finished comparing dtype loop ====")
+
+            logging.info(f"==== Exiting interaction {i} ====")
+
+            logging.info(f"==== Exiting dtype loop ====")
+
+            # convert back everything to fp64
+            node_feats = node_feats.to(torch.float64)
+            edge_attrs = edge_attrs.to(torch.float64)
+            edge_feats = edge_feats.to(torch.float64)
+            node_attrs_slice = node_attrs_slice.to(torch.float64)
+            cutoff = cutoff.to(torch.float64) if cutoff is not None else None
+            
             if is_lammps and i == 0:
                 node_attrs_slice = node_attrs_slice[: lammps_natoms[0]]
             node_feats = product(
                 node_feats=node_feats, sc=sc, node_attrs=node_attrs_slice
             )
+            logging.info(f"node_feats.shape after product: {node_feats.shape}")
             node_feats_list.append(node_feats)
             node_es_list.append(
                 readout(node_feats, node_heads)[num_atoms_arange, node_heads]
             )
+            logging.info(f"node_feats.shape after readout: {node_feats.shape}")
+        
+        # After all interaction layers, compute averages:
+        logging.info("==== AVERAGE STATISTICS ACROSS ALL LAYERS ====")
 
+        for precision in ["fp32", "fp16"]:
+            # Compute averages for absolute differences
+            abs_means = [stat['mean'] for stat in all_layer_stats[precision]["abs"]]
+            abs_stds = [stat['std'] for stat in all_layer_stats[precision]["abs"]]
+            abs_maxs = [stat['max'] for stat in all_layer_stats[precision]["abs"]]
+            
+            avg_abs_mean = np.mean(abs_means)
+            avg_abs_std = np.mean(abs_stds)
+            avg_abs_max = np.mean(abs_maxs)
+            std_abs_mean = np.std(abs_means)  # Standard deviation of means across layers
+            
+            # Compute averages for relative differences
+            rel_means = [stat['mean'] for stat in all_layer_stats[precision]["rel"]]
+            rel_stds = [stat['std'] for stat in all_layer_stats[precision]["rel"]]
+            rel_maxs = [stat['max'] for stat in all_layer_stats[precision]["rel"]]
+            
+            avg_rel_mean = np.mean(rel_means)
+            avg_rel_std = np.mean(rel_stds)
+            avg_rel_max = np.mean(rel_maxs)
+            std_rel_mean = np.std(rel_means)  # Standard deviation of means across layers
+            
+            logging.info(f"==== {precision.upper()} AVERAGE ACROSS {len(abs_means)} LAYERS ====")
+            logging.info(f"Absolute - Avg Mean: {avg_abs_mean:.2e} ± {std_abs_mean:.2e}, Avg Max: {avg_abs_max:.2e}, Avg Std: {avg_abs_std:.2e}")
+            logging.info(f"Relative - Avg Mean: {avg_rel_mean:.2e} ± {std_rel_mean:.2e}, Avg Max: {avg_rel_max:.2e}, Avg Std: {avg_rel_std:.2e}")
+        
         node_feats_out = torch.cat(node_feats_list, dim=-1)
         node_inter_es = torch.sum(torch.stack(node_es_list, dim=0), dim=0)
         node_inter_es = self.scale_shift(node_inter_es, node_heads)

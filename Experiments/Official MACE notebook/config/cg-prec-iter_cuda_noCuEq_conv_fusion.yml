@@ -1,6 +1,6 @@
 batch_size: 10
 checkpoints_dir: Experiments/Official MACE notebook/MACE_models
-device: cpu
+device: cuda
 energy_key: energy_xtb
 forces_key: forces_xtb
 log_dir: Experiments/Official MACE notebook/MACE_models
@@ -10,6 +10,10 @@ model: MACE
 model_dir: Experiments/Official MACE notebook/MACE_models
 name: mace01
 num_channels: 32
+oeq_config:
+  conv_fusion: atomic
+  enabled: true
+  optimize_all: true
 r_max: 4.0
 results_dir: Experiments/Official MACE notebook/MACE_models
 seed: 123

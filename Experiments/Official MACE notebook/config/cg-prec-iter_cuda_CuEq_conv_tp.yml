@@ -1,0 +1,21 @@
+batch_size: 10
+checkpoints_dir: Experiments/Official MACE notebook/MACE_models
+device: cuda
+enable_cueq: true
+energy_key: energy_xtb
+forces_key: forces_xtb
+log_dir: Experiments/Official MACE notebook/MACE_models
+max_L: 0
+max_num_epochs: 100
+model: MACE
+model_dir: Experiments/Official MACE notebook/MACE_models
+name: mace01
+num_channels: 32
+r_max: 4.0
+results_dir: Experiments/Official MACE notebook/MACE_models
+seed: 123
+show_block_sizes: false
+swa: true
+test_file: Experiments/Official MACE notebook/data/solvent_xtb.xyz
+train_file: Experiments/Official MACE notebook/data/solvent_xtb.xyz
+valid_fraction: 0.1

@@ -48,7 +48,7 @@ if __name__ == "__main__":
     print(f"Is cuda: {torch.cuda.is_available()}")
 
     train_config_file = (
-        "Experiments/Official MACE notebook/config/config-precision-iteraction.yml"
+        "Experiments/Official MACE notebook/config/cg-prec-iter_cuda_noCuEq_conv_fusion.yml"
     )
 
     # add debug flag for showing block sizes
