@@ -1,150 +1,47 @@
-✅ **Great clarification — let’s break this down and refine your task & prompt!**
+This script is a self-contained “precision‐audit” for the two MACE interaction blocks, and it proceeds in four stages:
 
 ---
 
-## 📌 **What your data is**
+## 1. Model & Data Setup
 
-👉 `db_full = read('...solvent_xtb.xyz', ':')`
-➡ This loads 5003 configurations from an XYZ file:
+* **`get_default_model_config()`**
+  Defines a minimal MACE model configuration by hand (elements H/C/O, cutoff, number of radial bases, two interaction layers both using the residual block class, irreps for hidden channels, etc.).
+* **`data_prep()`**
 
-* Each config = a molecular structure (solvent molecules in different configurations)
-* Each config contains:
-
-  * Atomic positions (ASE Atoms object)
-  * Atomic numbers
-  * Possibly energies/forces (XTB computed)
-  * Typically several atoms → multiple nodes
-  * Many atom pairs → multiple edges
-
-💡 **What this gives you for MACE:**
-➡ Nodes = atoms
-➡ Edges = pairs of atoms within cutoff radius
-
-➡ The data is perfect for your plan: you have many nodes and edges to stress-test precision.
+  * Reads a single geometry from an XYZ file.
+  * Wraps it in MACE’s `AtomicData` (building neighbor lists out to 3 Å, collecting atomic numbers and positions).
+  * Computes and prints basic stats: how many atoms, edges, the raw position array, node attributes (one-hot element embeddings) and edge indices.
 
 ---
 
-## 🎯 **Clarified objective**
+## 2. Single‐Block Smoke Test
 
-✅ You want:
+* **`get_interaction_block()`**
 
-* Extract embeddings for:
-
-  * **Node features** (node embeddings)
-  * **Edge features** (radial embeddings)
-  * **Edge attributes** (angular embeddings / Ylm)
-
-* Save these embeddings
-
-* Run **interaction block forward pass**:
-
-  * With the saved embeddings as input
-  * In fp64, fp32, fp16
-  * Compare outputs at Neighbour sum + linear
-  * No training — just inference
+  * Pulls out the first interaction layer (`model.interactions[0]`) and runs a forward pass on the FP64 embeddings, printing the shape of its output tensor $[n_\text{atoms},\,\text{channels},\,\text{Irrep‐dim}]$.
+  * This just verifies that you’ve wired up inputs correctly and that the block runs without error.
 
 ---
 
-## ⚡ **Updated AI prompt**
+## 3. Precision Comparison Loop
 
----
+* **`run_precision_comparison()`**
 
-### 🌟 **Prompt**
+  1. **Collect inputs once in FP64.**
 
----
+     * `initial_node_features` and `edge_features` are held in double precision.
+  2. **For each dtype in FP64, FP32, FP16 (if CUDA):**
 
-You are tasked with evaluating numerical stability of the MACE *InteractionBlock* using large molecular solvent configurations.
+     * **Deep-copy** each interaction block (layers 0 and 1) and cast its weights to that dtype.
+     * **Forward pass** through the block under test, with `loss = sum(output**2)` (a scalar).
+     * **Backward pass** to get gradients w\.r.t. the input node features.
+     * Store both the raw outputs and the input‐feature gradients in NumPy arrays (always converting back to FP64 for comparison).
+     * Clear GPU cache between dtypes to avoid memory buildup.
+  3. **Error metrics**
 
-✅ **Objective:**
+     * For each lower precision vs. the FP64 reference, compute:
 
-* Test how floating-point precision (fp64, fp32, fp16) affects outputs of the InteractionBlock
-* Use large real-world molecular data (many nodes + edges) to surface numerical instability
-
----
-
-✅ **Data:**
-
-* Source: `solvent_xtb.xyz` (5003 configs of solvent molecules, XTB computed)
-* Use: configurations with large numbers of atoms and edges (select largest configs if needed)
-
----
-
-✅ **Task:**
-
-1️⃣ **Extract embeddings:**
-
-* For a batch of configs, run MACE embedding code to compute:
-
-  * `node_features_fp64` → node embeddings
-  * `edge_features_fp64` → radial embeddings
-  * `edge_attributes_fp64` → angular embeddings
-* Save these to disk for reproducibility
-
----
-
-2️⃣ **Run forward pass:**
-
-* For each precision (fp64, fp32, fp16):
-
-  * Convert saved embeddings to desired dtype
-  * Run forward through InteractionBlock
-  * Capture outputs at:
-
-    * Neighbour sum + linear stage
-  * Save outputs
-
----
-
-3️⃣ **Compare outputs:**
-
-* Compute:
-
-  * Mean absolute error: `abs(output_fpX - output_fp64).mean()`
-  * Relative error: `abs(output_fpX - output_fp64).mean() / abs(output_fp64).mean()`
-* Aggregate over configs / batches
-* Save error metrics
-
----
-
-✅ **Implementation requirements:**
-
-* Use MACE model components in inference-only mode (no training)
-* Ensure consistent random seeds
-* Efficiently handle large configs (N\_nodes ≫ 100, N\_edges ≫ 1000)
-* Save embeddings, outputs, and error metrics in structured files (e.g. .pt, .npy)
-
----
-
-✅ **Output format:**
-
-| Precision | Abs Error (mean) | Rel Error (mean) |
-| --------- | ---------------- | ---------------- |
-| fp32      | <value>          | <value>          |
-| fp16      | <value>          | <value>          |
-
----
-
-✅ **Constraints:**
-
-* No training of the model
-* Ensure embeddings are generated once and reused across precision tests
-* Isolate precision as the only variable (identical graph structures, same model weights)
-
----
-
-## 🚀 **End result**
-
-👉 This prompt clearly instructs an AI agent to:
-
-* Identify and save embeddings
-* Run and compare forward passes at different precision levels
-* Handle your dataset correctly
-
----
-
-⚡ **Would you like me to draft code for:**
-✅ Extracting and saving embeddings
-✅ Running the precision experiments
-✅ Comparing outputs
-
-? Let me know — I can generate a template for you! 🚀
+       * **`fwd_max_abs`** = $\max \mid y_{64} – y_{32/16} \mid$
+       * **`fwd_mean_rel`** = $mean \mid y_{64} – y_{32/16} \mid / (y_{64} + \epsilon )$
+       * **`bwd_max_abs`**, **`bwd_mean_rel`** similarly on the gradients.
+     * Prints a little Pandas table showing how forward and backward errors grow when you drop from FP64→FP32 or FP16.
