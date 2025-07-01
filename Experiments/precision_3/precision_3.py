@@ -199,9 +199,21 @@ def run_precision_comparison(device='cpu'):
     results = {0: {}, 1: {}}  # block_idx -> dtype -> {'output': ..., 'grad': ...}
 
     for dtype in precisions:
+        print(f"\n=== Testing {dtype} ===")
+        
+        # Cast model to the current precision being tested
+        if dtype == torch.float32:
+            model_cast = model.float()
+        elif dtype == torch.float16:
+            model_cast = model.half()
+        else:  # torch.float64
+            model_cast = model.double()
+        
+        print(f"Model cast to {dtype}")
+        
         # Deep copy blocks and cast to dtype
-        block0 = copy.deepcopy(model.interactions[0]).to(dtype)
-        block1 = copy.deepcopy(model.interactions[1]).to(dtype)
+        block0 = copy.deepcopy(model_cast.interactions[0]).to(dtype)
+        block1 = copy.deepcopy(model_cast.interactions[1]).to(dtype)
         # Prepare inputs for block 0
         inputs0 = {}
         for k, v in interaction_inputs.items():
@@ -211,7 +223,7 @@ def run_precision_comparison(device='cpu'):
                 inputs0[k] = v.clone().detach().to(dtype).requires_grad_(k == 'node_feats')
         # Forward block 0
         output0, _ = block0(**inputs0)
-        product0 = copy.deepcopy(model.products[0]).to(dtype)
+        product0 = copy.deepcopy(model_cast.products[0]).to(dtype)
         output0_prod = product0(node_feats=output0, sc=None, node_attrs=inputs0['node_attrs'])
         loss0 = (output0 ** 2).sum()
         loss0.backward()
