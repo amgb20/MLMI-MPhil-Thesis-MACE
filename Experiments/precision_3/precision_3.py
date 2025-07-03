@@ -3,14 +3,10 @@ from mace import data, modules, tools
 import numpy as np
 import torch.nn.functional
 from e3nn import o3
-from matplotlib import pyplot as plt
 import ase.io
-from ase.visualize import view
-from scipy.spatial.transform import Rotation
 from mace.modules.wrapper_ops import CuEquivarianceConfig, OEQConfig
 
 
-from mace.tools import torch_geometric
 import warnings
 import copy
 import pandas as pd
@@ -131,11 +127,6 @@ def get_embedding_blocks(default_model_config, batch, lengths, vectors, z_table,
     print(f"  vectors: {vectors.dtype}")
 
     initial_node_features = model.node_embedding(batch.node_attrs)
-    #  check whether node embedding has cueq_config
-    if hasattr(model.node_embedding, 'cueq_config'):
-        print(f"cuEq enabled: {model.node_embedding.cueq_config.enabled}")
-    else:
-        print("cuEq is not enabled in the node embedding.")
 
     edge_features,_ = model.radial_embedding(lengths, batch["node_attrs"], batch["edge_index"], z_table)
     edge_attributes = model.spherical_harmonics(vectors)
@@ -147,11 +138,6 @@ def get_embedding_blocks(default_model_config, batch, lengths, vectors, z_table,
     #     '\nInitial node features. Note that they are the same for each chemical element\n',
     #     initial_node_features
     # )
-
-    if hasattr(model, 'cueq_config'):
-        print(f"cuEq enabled: {model.cueq_config.enabled}")
-    else:
-        print("cuEq is not enabled in the model.")
 
     return model, initial_node_features, edge_features, edge_attributes
 
@@ -169,11 +155,11 @@ def get_interaction_block(model, batch, lengths, vectors, initial_node_features,
     print("the output of the interaction is (num_atoms, channels, dim. spherical harmonics):", intermediate_node_features.shape)
 
 def run_precision_comparison(device='cpu'):
-    # Prepare data and model
+    # Prepare data and model config
     default_model_config = get_default_model_config()
     batch, lengths, vectors, z_table = data_prep()
     # Get fixed FP64 embeddings and edge features
-    model, initial_node_features, edge_features, edge_attributes = get_embedding_blocks(
+    model_fp64, initial_node_features, edge_features, edge_attributes = get_embedding_blocks(
         default_model_config, batch, lengths, vectors, z_table, device=device)
 
     # Prepare input for interaction blocks (always FP64)
@@ -186,44 +172,40 @@ def run_precision_comparison(device='cpu'):
     )
 
     precisions = [torch.float64, torch.float32]
-    if torch.cuda.is_available():
-        # Try a test operation in FP16 to check support
-        try:
-            torch.zeros(1, device='cuda', dtype=torch.float16)
-            precisions.append(torch.float16)
-        except Exception:
-            print("FP16 not supported on this device, skipping FP16.")
-    else:
-        print("FP16 not supported on CPU, skipping FP16.")
+    # if torch.cuda.is_available():
+    #     # Try a test operation in FP16 to check support
+    #     try:
+    #         torch.zeros(1, device='cuda', dtype=torch.float16)
+    #         precisions.append(torch.float16)
+    #     except Exception:
+    #         print("FP16 not supported on this device, skipping FP16.")
+    # else:
+    #     print("FP16 not supported on CPU, skipping FP16.")
 
     results = {0: {}, 1: {}}  # block_idx -> dtype -> {'output': ..., 'grad': ...}
 
     for dtype in precisions:
         print(f"\n=== Testing {dtype} ===")
-        
-        # Cast model to the current precision being tested
-        if dtype == torch.float32:
-            model_cast = model.float()
-        elif dtype == torch.float16:
-            model_cast = model.half()
-        else:  # torch.float64
-            model_cast = model.double()
-        
-        print(f"Model cast to {dtype}")
-        
-        # Deep copy blocks and cast to dtype
-        block0 = copy.deepcopy(model_cast.interactions[0]).to(dtype)
-        block1 = copy.deepcopy(model_cast.interactions[1]).to(dtype)
+        # Set default dtype so all cuEq submodules are built correctly
+        torch.set_default_dtype(dtype)
+        # (re)build the MACE model from scratch at this dtype
+        model = modules.MACE(**default_model_config)
+        model = model.to(device=device, dtype=dtype)
+        # now extract your blocks and products
+        block0 = copy.deepcopy(model.interactions[0])
+        product0 = copy.deepcopy(model.products[0])
+        block1 = copy.deepcopy(model.interactions[1])
+
         # Prepare inputs for block 0
         inputs0 = {}
         for k, v in interaction_inputs.items():
             if k == 'edge_index':
-                inputs0[k] = v.clone().detach().to(torch.long)
+                inputs0[k] = v.clone().detach().to(device=device, dtype=torch.long)
             else:
-                inputs0[k] = v.clone().detach().to(dtype).requires_grad_(k == 'node_feats')
+                inputs0[k] = v.clone().detach().to(device=device, dtype=dtype).requires_grad_(k == 'node_feats')
+
         # Forward block 0
         output0, _ = block0(**inputs0)
-        product0 = copy.deepcopy(model_cast.products[0]).to(dtype)
         output0_prod = product0(node_feats=output0, sc=None, node_attrs=inputs0['node_attrs'])
         loss0 = (output0 ** 2).sum()
         loss0.backward()
@@ -233,7 +215,7 @@ def run_precision_comparison(device='cpu'):
         }
         # Prepare inputs for block 1
         inputs1 = dict(inputs0)
-        inputs1['node_feats'] = output0_prod.clone().detach().to(dtype).requires_grad_(True)
+        inputs1['node_feats'] = output0_prod.clone().detach().to(device=device, dtype=dtype).requires_grad_(True)
         # Forward block 1
         output1, _ = block1(**inputs1)
         loss1 = (output1 ** 2).sum()
