@@ -11,6 +11,9 @@ import warnings
 import copy
 import pandas as pd
 warnings.filterwarnings("ignore")
+import logging
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+
 
 try:
     import cuequivariance as cue
@@ -50,12 +53,8 @@ def get_default_model_config():
             num_polynomial_cutoff=6,  # smoothness of the radial cutoff
             max_ell=2,  # expansion order of spherical harmonic adge attributes
             num_interactions=2,  # number of layers, typically 2
-            interaction_cls_first=modules.interaction_classes[
-                "RealAgnosticResidualInteractionBlock"
-            ],  # interation block of first layer
-            interaction_cls=modules.interaction_classes[
-                "RealAgnosticResidualInteractionBlock"
-            ],  # interaction block of subsequent layers
+            interaction_cls_first=modules.interaction_classes["RealAgnosticInteractionBlock"],
+            interaction_cls=modules.interaction_classes["RealAgnosticInteractionBlock"],
             hidden_irreps=o3.Irreps("8x0e + 8x1o"),  # 8: number of embedding channels, 0e, 1o is specifying which equivariant messages to use. Here up to L_max=1
             correlation=3,  # correlation order of the messages (body order - 1)
             MLP_irreps=o3.Irreps("16x0e"),  # number of hidden dimensions of last layer readout MLP
@@ -158,18 +157,11 @@ def run_precision_comparison(device='cpu'):
     # Prepare data and model config
     default_model_config = get_default_model_config()
     batch, lengths, vectors, z_table = data_prep()
-    # Get fixed FP64 embeddings and edge features
-    model_fp64, initial_node_features, edge_features, edge_attributes = get_embedding_blocks(
-        default_model_config, batch, lengths, vectors, z_table, device=device)
-
-    # Prepare input for interaction blocks (always FP64)
-    interaction_inputs = dict(
-        node_feats=initial_node_features,
-        node_attrs=batch.node_attrs,
-        edge_feats=edge_features,
-        edge_attrs=edge_attributes,
-        edge_index=batch.edge_index,
-    )
+    
+    # 1) Build one "master" FP64 model and capture its state
+    torch.set_default_dtype(torch.float64)
+    master = modules.MACE(**default_model_config).to(device=device, dtype=torch.float64)
+    master_state = master.state_dict()
 
     precisions = [torch.float64, torch.float32]
     # if torch.cuda.is_available():
@@ -186,43 +178,77 @@ def run_precision_comparison(device='cpu'):
 
     for dtype in precisions:
         print(f"\n=== Testing {dtype} ===")
-        # Set default dtype so all cuEq submodules are built correctly
-        torch.set_default_dtype(dtype)
-        # (re)build the MACE model from scratch at this dtype
-        model = modules.MACE(**default_model_config)
-        model = model.to(device=device, dtype=dtype)
-        # now extract your blocks and products
-        block0 = copy.deepcopy(model.interactions[0])
-        product0 = copy.deepcopy(model.products[0])
-        block1 = copy.deepcopy(model.interactions[1])
+        # a) re-instantiate & load the very same FP64 weights
+        m = modules.MACE(**default_model_config)
+        m.load_state_dict(master_state)
+        # b) now cast every registered param & buffer
+        m = m.to(device=device, dtype=dtype)
 
-        # Prepare inputs for block 0
-        inputs0 = {}
-        for k, v in interaction_inputs.items():
-            if k == 'edge_index':
-                inputs0[k] = v.clone().detach().to(device=device, dtype=torch.long)
-            else:
-                inputs0[k] = v.clone().detach().to(device=device, dtype=dtype).requires_grad_(k == 'node_feats')
+        # 2) Recompute all embeddings at this precision
+        batch_d   = batch.to(device=device, dtype=dtype)
+        lengths_d = lengths.to(device=device, dtype=dtype)
+        vectors_d = vectors.to(device=device, dtype=dtype)
+
+        x0 = m.node_embedding(batch_d.node_attrs)
+        x0 = x0.requires_grad_()
+        x0.retain_grad()
+        e_feats, _ = m.radial_embedding(lengths_d,
+                                        batch_d.node_attrs,
+                                        batch_d.edge_index,
+                                        z_table)
+        e_attrs = m.spherical_harmonics(vectors_d)
+
+        # 3) **Cast node_attrs** to the same float dtype as everything else!
+        node_attrs_d = batch_d.node_attrs.to(dtype)
+
+        inputs0 = {
+            'node_feats': x0,
+            'node_attrs': node_attrs_d,
+            'edge_feats': e_feats,
+            'edge_attrs': e_attrs,
+            'edge_index': batch_d.edge_index.to(torch.long),
+        }
+
+        # Pull out the exact same interaction blocks & products
+        block0   = m.interactions[0]
+        product0 = m.products[0]
+        block1   = m.interactions[1]
+
+        print("=== InteractionBlock[0] ===")
+        print("Has conv_fusion? ", hasattr(block0, "conv_fusion"))
+        print("Has conv_tp? ", hasattr(block0, "conv_tp"))
+        print("  conv_fusion =", getattr(block0, "conv_fusion", None))
+        print("  conv_tp =", getattr(block0, "conv_tp", None))
+
 
         # Forward block 0
+        print("skip_tp.weight.dtype:", block0.skip_tp.weight.dtype, "node_feats.dtype:", inputs0["node_feats"].dtype)
         output0, _ = block0(**inputs0)
         output0_prod = product0(node_feats=output0, sc=None, node_attrs=inputs0['node_attrs'])
         loss0 = (output0 ** 2).sum()
         loss0.backward()
+        grad0 = inputs0['node_feats'].grad
+        if grad0 is None:
+            raise RuntimeError("Gradient for inputs0['node_feats'] is None. Ensure .retain_grad() is called on the tensor.")
         results[0][dtype] = {
             'output': output0.detach().cpu().double().numpy(),
-            'grad': inputs0['node_feats'].grad.detach().cpu().double().numpy(),
+            'grad': grad0.detach().cpu().double().numpy(),
         }
         # Prepare inputs for block 1
         inputs1 = dict(inputs0)
-        inputs1['node_feats'] = output0_prod.clone().detach().to(device=device, dtype=dtype).requires_grad_(True)
+        node_feats1 = output0_prod.clone().detach().to(device=device, dtype=dtype).requires_grad_(True)
+        node_feats1.retain_grad()  # Ensure gradient is retained for non-leaf tensor
+        inputs1['node_feats'] = node_feats1
         # Forward block 1
         output1, _ = block1(**inputs1)
         loss1 = (output1 ** 2).sum()
         loss1.backward()
+        grad1 = inputs1['node_feats'].grad
+        if grad1 is None:
+            raise RuntimeError("Gradient for inputs1['node_feats'] is None. Ensure .retain_grad() is called on the tensor.")
         results[1][dtype] = {
             'output': output1.detach().cpu().double().numpy(),
-            'grad': inputs1['node_feats'].grad.detach().cpu().double().numpy(),
+            'grad': grad1.detach().cpu().double().numpy(),
         }
 
     # Now compare for both blocks and output as DataFrame
@@ -247,7 +273,7 @@ def run_precision_comparison(device='cpu'):
                 'bwd_max_rel': rel_bwd.max(),
             })
 
-            df_sub = pd.DataFrame([rows])
+            df_sub = pd.DataFrame(rows)
             label = str(dtype).replace('torch.float','fp')
             print(f"\nComparison to FP64 for block {block_idx} (FP64 vs. {label}):")
             print(df_sub)
