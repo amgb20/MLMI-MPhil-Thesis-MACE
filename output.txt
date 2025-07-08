@@ -1,0 +1,114 @@
+✓ cuEquivariance library is available
+Device: cuda
+Default dtype: torch.float32
+Default dtype set to float64
+
+=== Comprehensive Precision Testing ===
+Elements found in dataset: [1, 6]
+Element symbols: ['C', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C']...
+Created z_table with 2 elements: [1, 6]
+there are 370 nodes and 4270 edges
+lengths is shape torch.Size([4270, 1])
+vectors is shape torch.Size([4270, 3])
+Using reduced CG: True
+Using reduced CG: True
+✓ BF16 will be tested
+✓ FP16 will be tested
+
+--- Testing fp64 ---
+Using reduced CG: True
+Using reduced CG: True
+==== Entering interaction block ====
+  Block 0: 142.05ms, 27.0MB
+==== Entering interaction block ====
+  Block 1: 147.51ms, 41.5MB
+
+--- Testing fp32 ---
+Using reduced CG: True
+Using reduced CG: True
+==== Entering interaction block ====
+  Block 0: 137.48ms, 27.5MB
+==== Entering interaction block ====
+  Block 1: 159.21ms, 29.5MB
+
+--- Testing tf32 ---
+  TF32 enabled: matmul=True, cudnn=True
+Using reduced CG: True
+Using reduced CG: True
+==== Entering interaction block ====
+  Block 0: 4.97ms, 27.0MB
+==== Entering interaction block ====
+  Block 1: 4.92ms, 29.5MB
+
+--- Testing bf16 ---
+Using reduced CG: True
+Using reduced CG: True
+==== Entering interaction block ====
+  Block 0: 199.24ms, 22.6MB
+==== Entering interaction block ====
+  Block 1: 202.90ms, 24.5MB
+
+--- Testing fp16 ---
+Using reduced CG: True
+Using reduced CG: True
+==== Entering interaction block ====
+  Block 0: 211.74ms, 22.3MB
+==== Entering interaction block ====
+  Block 1: 203.75ms, 24.5MB
+
+=== Comprehensive Precision Comparison ===
+
+Block 0 (reference: fp64):
+  fp32:
+    Forward error: 1.69e-07 (abs), 5.79e-02 (rel)
+    Backward error: 1.40e-07 (abs), 8.18e-05 (rel)
+    Speedup vs FP32: 1.00x
+    Time: 137.48ms
+    Memory: 27.5MB
+  tf32:
+    Forward error: 8.09e-05 (abs), 6.57e+01 (rel)
+    Backward error: 8.93e-05 (abs), 2.73e-02 (rel)
+    Speedup vs FP32: 27.68x
+    Time: 4.97ms
+    Memory: 27.0MB
+  bf16:
+    Forward error: 1.98e-01 (abs), 5.75e+03 (rel)
+    Backward error: 4.63e-01 (abs), 2.60e+01 (rel)
+    Speedup vs FP32: 0.69x
+    Time: 199.24ms
+    Memory: 22.6MB
+  fp16:
+    Forward error: 1.97e-01 (abs), 6.72e+03 (rel)
+    Backward error: 4.67e-01 (abs), 2.60e+01 (rel)
+    Speedup vs FP32: 0.65x
+    Time: 211.74ms
+    Memory: 22.3MB
+
+Block 1 (reference: fp64):
+  fp32:
+    Forward error: 8.04e-09 (abs), 5.35e-02 (rel)
+    Backward error: 3.06e-09 (abs), 6.50e-01 (rel)
+    Speedup vs FP32: 1.00x
+    Time: 159.21ms
+    Memory: 29.5MB
+  tf32:
+    Forward error: 4.62e-06 (abs), 4.14e+01 (rel)
+    Backward error: 1.86e-06 (abs), 8.11e+02 (rel)
+    Speedup vs FP32: 32.36x
+    Time: 4.92ms
+    Memory: 29.5MB
+  bf16:
+    Forward error: 2.34e-02 (abs), 2.33e+04 (rel)
+    Backward error: 2.78e-02 (abs), 5.79e+04 (rel)
+    Speedup vs FP32: 0.78x
+    Time: 202.90ms
+    Memory: 24.5MB
+  fp16:
+    Forward error: 2.33e-02 (abs), 1.27e+04 (rel)
+    Backward error: 2.81e-02 (abs), 2.57e+04 (rel)
+    Speedup vs FP32: 0.78x
+    Time: 203.75ms
+    Memory: 24.5MB
+
+Comprehensive results saved to Experiments/numerical_stability/xlsx/comprehensive_precision_test.xlsx
+['H', 'C']
