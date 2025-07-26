@@ -1,2 +1,5 @@
 mace_env
 Experiments/Official MACE notebook/MACE_models/
+*.png
+*.xyz
+*.xlsx
