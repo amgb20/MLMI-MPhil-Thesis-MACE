@@ -3,3 +3,4 @@ Experiments/Official MACE notebook/MACE_models/
 *.png
 *.xyz
 *.xlsx
+mace/mace/calculators/foundations_models/*.model
