@@ -16,6 +16,7 @@ import torch.nn.functional
 from e3nn import o3
 
 from mace import data, modules, tools
+# from wrapper_ops import CuEquivarianceConfig, OEQConfig
 from mace.modules.wrapper_ops import CuEquivarianceConfig, OEQConfig
 
 warnings.filterwarnings("ignore")
@@ -56,7 +57,7 @@ def get_default_model_config(z_table):
     cueq_config = CuEquivarianceConfig(
         enabled=True,  # Changed from True to False to allow conv_fusion
         layout="ir_mul",
-        group="O3_e3nn",
+        group="O3",
         optimize_all=True,
     )
 
