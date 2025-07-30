@@ -24,16 +24,20 @@ import logging
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-import ns_plots
-
 try:
-    import cuequivariance as cue
+    import openequivariance
+    oeq_available = True
+    print("✓ OpenEquivariance library is available")
+except ImportError as e:
+    oeq_available = False
+    print(f"✗ OpenEquivariance library is not available - OEQ will be disabled")
+    print(f"  Error: {e}")
+except Exception as e:
+    oeq_available = False
+    print(f"✗ OpenEquivariance library failed to load - OEQ will be disabled")
+    print(f"  Error: {e}")
 
-    cueq_available = True
-    print("✓ cuEquivariance library is available")
-except ImportError:
-    cueq_available = False
-    print("✗ cuEquivariance library is not available - cuEq will be disabled")
+import ns_plots
 
 # TODO: warm up run because the first few CUDA kernels and cuDNN calls often include JIT compilation or algorithm selection overhead --> good practice to do dry runs per precision before starting timed measurements
 # TODO: warm-up and repetition where we need to run each block multiple times to get a more accurate time measurements adn report mean and std to smooth out GPU jitter
