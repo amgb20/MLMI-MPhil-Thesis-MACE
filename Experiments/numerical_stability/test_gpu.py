@@ -11,7 +11,11 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 import logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
-
+import types
+import copy
+from e3nn.o3 import Irreps
+import cuequivariance   as cue
+import cuequivariance_torch as cuet
 
 try:
     import cuequivariance as cue
@@ -27,21 +31,21 @@ def get_default_model_config(z_table):
     # Create atomic energies array with default values for each element
     # You can adjust these values based on your needs
     atomic_energies = np.array([-1.0] * num_elements, dtype=float)  # Default energy per element
-    cutoff = 3
+    cutoff = 6
 
     default_model_config = dict(
             num_elements=num_elements,  # number of chemical elements (dynamic)
             atomic_energies=atomic_energies,  # atomic energies used for normalisation
-            avg_num_neighbors=8,  # avg number of neighbours of the atoms, used for internal normalisation of messages
+            avg_num_neighbors=180,  # avg number of neighbours of the atoms, used for internal normalisation of messages
             atomic_numbers=z_table.zs,  # atomic numbers, used to specify chemical element embeddings of the model
             r_max=cutoff,  # cutoff
             num_bessel=8,  # number of radial features
-            num_polynomial_cutoff=6,  # smoothness of the radial cutoff
-            max_ell=2,  # expansion order of spherical harmonic adge attributes
+            num_polynomial_cutoff=5,  # smoothness of the radial cutoff
+            max_ell=3,  # expansion order of spherical harmonic adge attributes
             num_interactions=2,  # number of layers, typically 2
             interaction_cls_first=modules.interaction_classes["RealAgnosticInteractionBlock"],
             interaction_cls=modules.interaction_classes["RealAgnosticInteractionBlock"],
-            hidden_irreps=o3.Irreps("8x0e + 8x1o"),  # 8: number of embedding channels, 0e, 1o is specifying which equivariant messages to use. Here up to L_max=1
+            hidden_irreps=o3.Irreps("128x0e + 128x1o"),  # 8: number of embedding channels, 0e, 1o is specifying which equivariant messages to use. Here up to L_max=1
             correlation=3,  # correlation order of the messages (body order - 1)
             MLP_irreps=o3.Irreps("16x0e"),  # number of hidden dimensions of last layer readout MLP
             gate=torch.nn.functional.silu,  # nonlinearity used in last layer readout MLP
@@ -85,9 +89,6 @@ def data_prep():
 
     return batch, lengths, vectors, z_table
 
-
-import types
-
 def with_cueq_conv_fusion(conv_tp: torch.nn.Module) -> torch.nn.Module:
     """Wraps a cuet.ConvTensorProduct to use conv fusion"""
     conv_tp.original_forward = conv_tp.forward
@@ -111,20 +112,18 @@ def with_cueq_conv_fusion(conv_tp: torch.nn.Module) -> torch.nn.Module:
     conv_tp.forward = types.MethodType(forward, conv_tp)
     return conv_tp
 
-import torch, copy
-from e3nn.o3 import Irreps
-import cuequivariance   as cue
-import cuequivariance_torch as cuet
+def benchmark_cuda(fn, inputs, warmup=10, runs=50):
 
-def benchmark_cuda(fn, warmup=10, runs=50):
-
-    # we should run once under no grad so the kenel is JIT-compiled
+    # def wrapped_fn():
+    #     return fn(*inputs)
+    
+    traced_fn = torch.jit.trace(fn, inputs)
     with torch.inference_mode():
-        fn()
+        traced_fn(*inputs)
     torch.cuda.synchronize()
 
     for _ in range(warmup):
-        fn()
+        traced_fn(*inputs)
     torch.cuda.synchronize()
 
     torch.cuda.reset_peak_memory_stats()
@@ -134,7 +133,7 @@ def benchmark_cuda(fn, warmup=10, runs=50):
         start = torch.cuda.Event(enable_timing=True)
         end   = torch.cuda.Event(enable_timing=True)
         start.record()
-        fn()
+        traced_fn(*inputs)
         end.record()
         torch.cuda.synchronize()
         time_ms.append(start.elapsed_time(end))
@@ -142,6 +141,33 @@ def benchmark_cuda(fn, warmup=10, runs=50):
     mean_time_ms = (sum(time_ms)/len(time_ms))
     peak_mem_bytes = torch.cuda.max_memory_allocated()
     return mean_time_ms, peak_mem_bytes
+
+# def benchmark_cuda(fn, warmup=10, runs=50):
+
+#     # we should run once under no grad so the kenel is JIT-compiled
+#     with torch.inference_mode():
+#         fn()
+#     torch.cuda.synchronize()
+
+#     for _ in range(warmup):
+#         fn()
+#     torch.cuda.synchronize()
+
+#     torch.cuda.reset_peak_memory_stats()
+
+#     time_ms = []
+#     for _ in range(runs):
+#         start = torch.cuda.Event(enable_timing=True)
+#         end   = torch.cuda.Event(enable_timing=True)
+#         start.record()
+#         fn()
+#         end.record()
+#         torch.cuda.synchronize()
+#         time_ms.append(start.elapsed_time(end))
+
+#     mean_time_ms = (sum(time_ms)/len(time_ms))
+#     peak_mem_bytes = torch.cuda.max_memory_allocated()
+#     return mean_time_ms, peak_mem_bytes
 
 def benchmark_cpu(fn, warmup=3, runs=10):
     import time
@@ -152,8 +178,8 @@ def benchmark_cpu(fn, warmup=3, runs=10):
         fn()
     return (time.perf_counter()-t0)*1000/runs, 0
 
-def get_memory_and_time_usage(device: str, fn):
-    return (benchmark_cuda if device.startswith("cuda") else benchmark_cpu)(fn)
+def get_memory_and_time_usage(device: str, fn, inputs):
+    return (benchmark_cuda if device.startswith("cuda") else benchmark_cpu)(fn, inputs)
 
 # build cue descriptors + polynomial modules which allows us to use the cuequivariance library and directly conv_tp without
 # having to write our own custom conv_tp config file which is annoying atm
@@ -185,6 +211,8 @@ def main():
     # grab the two TensorProduct modules because we want to get the dimensions of the weights
     tp0 = model.interactions[0].conv_tp # first layer
     tp1 = model.interactions[1].conv_tp # second layer
+
+    pass
 
     # turn their irreps into e3nn.Irreps to get dimensions
     in_ir0, attr_ir0, out_ir0 = (
@@ -233,7 +261,7 @@ def main():
     for name, dtype in [
         ("FP64", torch.float64),
         ("FP32", torch.float32),
-        ("TF32","tf32"),
+        ("TF32", torch.float32),
         ("FP16", torch.float16),
         ("BF16", torch.bfloat16),
     ]:
@@ -249,15 +277,25 @@ def main():
         m1 = copy.deepcopy(fused1_ref).to(dtype)
         layers0[name] = (m0, dtype)
         layers1[name] = (m1, dtype)
+    
 
     # simulate a mini-batch with the same number of nodes and edges as the real run
-    N, E = 200000, 2000000
+    N, E = 100, 10000
     nf0 = torch.randn(N, in_ir0.dim,    dtype=torch.float64)
     nf1 = torch.randn(N, in_ir1.dim,    dtype=torch.float64)
     ea  = torch.randn(E, attr_ir0.dim,  dtype=torch.float64)
     tw0 = torch.randn(E, tp0.weight_numel, dtype=torch.float64)
     tw1 = torch.randn(E, tp1.weight_numel, dtype=torch.float64)
     ei  = torch.randint(0, N, (2, E), dtype=torch.int64)
+
+    print(f"Layer 0 input features: {nf0.shape}")
+    print(f"Layer 1 input features: {nf1.shape}")
+    print(f"Layer 0 weights: {tw0.shape}")
+    print(f"Layer 1 weights: {tw1.shape}")
+    print(f"Layer 0 output dim: {out_ir0.dim}")
+    print(f"Layer 1 output dim: {out_ir1.dim}")
+    print("Edge index: ", ei.shape)
+    print("Edge attributes: ", ea.shape)
 
     inputs0, inputs1 = {}, {}
     for name, (layer0, dt0) in layers0.items():
@@ -284,24 +322,28 @@ def main():
         task0 = lambda: layer0(*inputs0[name])[0]
         task1 = lambda: layer1(*inputs1[name])[0]
 
-        t0, m0 = get_memory_and_time_usage(device, task0)
-        t1, m1 = get_memory_and_time_usage(device, task1)
+        # t0, m0 = get_memory_and_time_usage(device, task0)
+        # t1, m1 = get_memory_and_time_usage(device, task1)
+
+        t0, m0 = get_memory_and_time_usage(device, layer0, inputs0[name])
+        t1, m1 = get_memory_and_time_usage(device, layer1, inputs1[name])
         results.append((name, t0, m0, t1, m1))
 
     # Convert results to DataFrame
     df_results = pd.DataFrame(results, columns=['dtype', 'L0_time', 'L0_mem', 'L1_time', 'L1_mem'])
-    df_results['L0_time'] = df_results['L0_time'].round(3)
-    df_results['L1_time'] = df_results['L1_time'].round(3)
-    df_results['L0_mem'] = (df_results['L0_mem'] / 1e6).round(3)
-    df_results['L1_mem'] = (df_results['L1_mem'] / 1e6).round(3)
-    df_results['L1/L0_time'] = (df_results['L1_time'] / df_results['L0_time']).round(3)
-    df_results['L1/L0_mem'] = (df_results['L1_mem'] / df_results['L0_mem']).round(3)
+    df_results['L0_time'] = df_results['L0_time']
+    df_results['L1_time'] = df_results['L1_time']
+    df_results['L0_mem'] = (df_results['L0_mem'] / 1e6)
+    df_results['L1_mem'] = (df_results['L1_mem'] / 1e6)
+    df_results['L1/L0_time'] = (df_results['L1_time'] / df_results['L0_time'])
+    df_results['L1/L0_mem'] = (df_results['L1_mem'] / df_results['L0_mem'])
 
     # Display the DataFrame
     print("Benchmark Results when cuet.SegmentedPolynomial is used in math_dtype: fp64. All results are in ms and MB")
+    
+    # Format with scientific notation
+    # pd.set_option('display.float_format', '{:.5e}'.format)
     print(df_results.to_string(index=False))
-
-
 
 
 if __name__ == "__main__":
