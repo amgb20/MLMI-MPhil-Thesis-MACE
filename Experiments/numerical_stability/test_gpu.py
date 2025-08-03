@@ -113,9 +113,6 @@ def with_cueq_conv_fusion(conv_tp: torch.nn.Module) -> torch.nn.Module:
     return conv_tp
 
 def benchmark_cuda(fn, inputs, warmup=10, runs=50):
-
-    # def wrapped_fn():
-    #     return fn(*inputs)
     
     traced_fn = torch.jit.trace(fn, inputs)
     with torch.inference_mode():
@@ -141,33 +138,6 @@ def benchmark_cuda(fn, inputs, warmup=10, runs=50):
     mean_time_ms = (sum(time_ms)/len(time_ms))
     peak_mem_bytes = torch.cuda.max_memory_allocated()
     return mean_time_ms, peak_mem_bytes
-
-# def benchmark_cuda(fn, warmup=10, runs=50):
-
-#     # we should run once under no grad so the kenel is JIT-compiled
-#     with torch.inference_mode():
-#         fn()
-#     torch.cuda.synchronize()
-
-#     for _ in range(warmup):
-#         fn()
-#     torch.cuda.synchronize()
-
-#     torch.cuda.reset_peak_memory_stats()
-
-#     time_ms = []
-#     for _ in range(runs):
-#         start = torch.cuda.Event(enable_timing=True)
-#         end   = torch.cuda.Event(enable_timing=True)
-#         start.record()
-#         fn()
-#         end.record()
-#         torch.cuda.synchronize()
-#         time_ms.append(start.elapsed_time(end))
-
-#     mean_time_ms = (sum(time_ms)/len(time_ms))
-#     peak_mem_bytes = torch.cuda.max_memory_allocated()
-#     return mean_time_ms, peak_mem_bytes
 
 def benchmark_cpu(fn, warmup=3, runs=10):
     import time
@@ -197,6 +167,22 @@ def make_poly(in_ir, attr_ir, out_ir, math_dtype, device):
         output_dtype_map=[-1]
     ).to(device)
 
+def get_dimensions(tp0, tp1, in_ir0, attr_ir0, out_ir0, in_ir1, attr_ir1, out_ir1):
+    print("L0 output dim:", out_ir0.dim)
+    print("L1 output dim:", out_ir1.dim)
+
+    print("Layer 0 conv_tp dims:")
+    print(" - in feat dim        ", in_ir0.dim)
+    print(" - edge-attr (Y_l) dim ", attr_ir0.dim)
+    print(" - radial-MLP weight dim", tp0.weight_numel)
+    print(" - out feat dim       ", out_ir0.dim, "\n")
+
+    print("Layer 1 conv_tp dims:")
+    print(" - in feat dim        ", in_ir1.dim)
+    print(" - edge-attr (Y_l) dim ", attr_ir1.dim)
+    print(" - radial-MLP weight dim", tp1.weight_numel)
+    print(" - out feat dim       ", out_ir1.dim, "\n")
+
 
 def main():
 
@@ -212,8 +198,6 @@ def main():
     tp0 = model.interactions[0].conv_tp # first layer
     tp1 = model.interactions[1].conv_tp # second layer
 
-    pass
-
     # turn their irreps into e3nn.Irreps to get dimensions
     in_ir0, attr_ir0, out_ir0 = (
         Irreps(tp0.irreps_in1),
@@ -227,21 +211,7 @@ def main():
     )
 
     # sanity check printing
-
-    print("L0 output dim:", out_ir0.dim)
-    print("L1 output dim:", out_ir1.dim)
-
-    print("Layer 0 conv_tp dims:")
-    print(" - in feat dim        ", in_ir0.dim)
-    print(" - edge-attr (Y_l) dim ", attr_ir0.dim)
-    print(" - radial-MLP weight dim", tp0.weight_numel)
-    print(" - out feat dim       ", out_ir0.dim, "\n")
-
-    print("Layer 1 conv_tp dims:")
-    print(" - in feat dim        ", in_ir1.dim)
-    print(" - edge-attr (Y_l) dim ", attr_ir1.dim)
-    print(" - radial-MLP weight dim", tp1.weight_numel)
-    print(" - out feat dim       ", out_ir1.dim, "\n")
+    get_dimensions(tp0, tp1, in_ir0, attr_ir0, out_ir0, in_ir1, attr_ir1, out_ir1)
 
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -288,15 +258,6 @@ def main():
     tw1 = torch.randn(E, tp1.weight_numel, dtype=torch.float64)
     ei  = torch.randint(0, N, (2, E), dtype=torch.int64)
 
-    print(f"Layer 0 input features: {nf0.shape}")
-    print(f"Layer 1 input features: {nf1.shape}")
-    print(f"Layer 0 weights: {tw0.shape}")
-    print(f"Layer 1 weights: {tw1.shape}")
-    print(f"Layer 0 output dim: {out_ir0.dim}")
-    print(f"Layer 1 output dim: {out_ir1.dim}")
-    print("Edge index: ", ei.shape)
-    print("Edge attributes: ", ea.shape)
-
     inputs0, inputs1 = {}, {}
     for name, (layer0, dt0) in layers0.items():
         inputs0[name] = (
@@ -319,12 +280,6 @@ def main():
         layer0, _ = layers0[name]
         layer1, _ = layers1[name]
 
-        task0 = lambda: layer0(*inputs0[name])[0]
-        task1 = lambda: layer1(*inputs1[name])[0]
-
-        # t0, m0 = get_memory_and_time_usage(device, task0)
-        # t1, m1 = get_memory_and_time_usage(device, task1)
-
         t0, m0 = get_memory_and_time_usage(device, layer0, inputs0[name])
         t1, m1 = get_memory_and_time_usage(device, layer1, inputs1[name])
         results.append((name, t0, m0, t1, m1))
@@ -344,6 +299,8 @@ def main():
     # Format with scientific notation
     # pd.set_option('display.float_format', '{:.5e}'.format)
     print(df_results.to_string(index=False))
+
+
 
 
 if __name__ == "__main__":

@@ -167,6 +167,7 @@ def create_numerical_stability_plots(df_layer0_comparison, df_layer1_comparison)
     
     # Create a comprehensive visualization
     fig, axes = plt.subplots(2, 3, figsize=(20, 12))
+    axes[1,2].axis('off')
     fig.suptitle('MACE Numerical Stability Analysis', fontsize=16, fontweight='bold')
     
     # Prepare data for plotting
@@ -261,41 +262,6 @@ def create_numerical_stability_plots(df_layer0_comparison, df_layer1_comparison)
     ax5.axhline(y=1, color='black', linestyle='--', alpha=0.5, label='Equal Error')
     ax5.set_xticklabels(precisions, rotation=45)
     
-    # 6. Heatmap of all errors
-    ax6 = axes[1, 2]
-    
-    # Prepare data for heatmap
-    heatmap_data = []
-    metrics = ['Forward Abs', 'Forward Rel', 'Backward Abs', 'Backward Rel']
-    
-    for metric in metrics:
-        if 'Forward Abs' in metric:
-            values = abs_errors_l0_fwd + abs_errors_l1_fwd
-        elif 'Forward Rel' in metric:
-            values = rel_errors_l0_fwd + rel_errors_l1_fwd
-        elif 'Backward Abs' in metric:
-            values = abs_errors_l0_bwd + abs_errors_l1_bwd
-        else:  # Backward Rel
-            values = rel_errors_l0_bwd + rel_errors_l1_bwd
-        heatmap_data.append(values)
-    
-    # Create labels for heatmap
-    heatmap_labels = [f"{p}_L0" for p in precisions] + [f"{p}_L1" for p in precisions]
-    
-    # Normalize data for better visualization
-    heatmap_array = np.array(heatmap_data)
-    heatmap_norm = (heatmap_array - heatmap_array.min()) / (heatmap_array.max() - heatmap_array.min())
-    
-    im = ax6.imshow(heatmap_norm, cmap='viridis', aspect='auto')
-    ax6.set_xticks(range(len(heatmap_labels)))
-    ax6.set_yticks(range(len(metrics)))
-    ax6.set_xticklabels(heatmap_labels, rotation=45, ha='right')
-    ax6.set_yticklabels(metrics)
-    ax6.set_title('Normalized Error Heatmap')
-    
-    # Add colorbar
-    cbar = plt.colorbar(im, ax=ax6)
-    cbar.set_label('Normalized Error Value')
     
     plt.tight_layout()
     plt.show()

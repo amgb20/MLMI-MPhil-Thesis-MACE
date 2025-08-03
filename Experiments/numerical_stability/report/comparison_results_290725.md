@@ -25,8 +25,8 @@ Our evaluation uses fp64 as the baseline benchmark, reflecting the standard prac
 ## Experimental Parameters
 
 To evaluate performance under extreme computational conditions, we conducted our benchmarks using large-scale graph structures:
-- **Number of Nodes**: 200,000
-- **Number of Edges**: 2,000,000
+- **Number of Nodes**: 100
+- **Number of Edges**: 10,000
 
 These parameters were chosen to stress-test the numerical precision implementations under realistic high-complexity scenarios.
 
@@ -45,11 +45,11 @@ A warm-up is needed for ...
 
 | Precision | L0 Time (ms) | L0 Memory (MB) | L1 Time (ms) | L1 Memory (MB) | L1/L0 Time Ratio | L1/L0 Memory Ratio |
 |-----------|--------------|----------------|--------------|----------------|-------------------|-------------------|
-| **FP64**  | 6.631        | 4522.67        | 24.833       | 4676.127       | 3.745             | 1.034             |
-| FP32      | 9.255        | 4522.67        | 30.715       | 4676.127       | 3.319             | 1.034             |
-| TF32      | 9.256        | 4522.67        | 30.715       | 4676.127       | 3.318             | 1.034             |
-| FP16      | 9.220        | 4522.67        | 31.014       | 4676.127       | 3.364             | 1.034             |
-| BF16      | 9.210        | 4522.67        | 30.929       | 4676.127       | 3.358             | 1.034             |
+| **FP64**  | 0.583        | 384.42         | 1.827        | 386.853        | 3.134             | 1.006             |
+| FP32      | 0.582        | 384.42         | 2.060        | 386.853        | 3.540             | 1.006             |
+| TF32      | 0.579        | 384.42         | 1.816        | 386.853        | 3.136             | 1.006             |
+| FP16      | 0.480        | 384.42         | 1.588        | 386.853        | 3.308             | 1.006             |
+| BF16      | 0.485        | 384.42         | 1.621        | 386.853        | 3.342             | 1.006             |
 
 ![alt text](../figs/mace_layer_bm_fp64_gpu_time.png)
 
@@ -57,11 +57,11 @@ A warm-up is needed for ...
 
 | Precision | L0 Time (ms) | L0 Memory (MB) | L1 Time (ms) | L1 Memory (MB) | L1/L0 Time Ratio | L1/L0 Memory Ratio |
 |-----------|--------------|----------------|--------------|----------------|-------------------|-------------------|
-| FP64      | 4.516        | 4464.927       | 8.829        | 4541.727       | 1.955             | 1.017             |
-| **FP32**  | 4.040        | 4464.927       | 7.692        | 4541.727       | 1.904             | 1.017             |
-| TF32      | 4.039        | 4464.927       | 7.693        | 4541.727       | 1.905             | 1.017             |
-| FP16      | 3.895        | 4464.927       | 7.270        | 4541.727       | 1.866             | 1.017             |
-| BF16      | 3.892        | 4464.927       | 7.263        | 4541.727       | 1.866             | 1.017             |
+| FP64      | 0.310        | 383.576        | 0.553        | 384.805        | 1.784             | 1.003             |
+| **FP32**  | 0.304        | 383.576        | 0.527        | 384.805        | 1.734             | 1.003             |
+| TF32      | 0.300        | 383.576        | 0.527        | 384.805        | 1.757             | 1.003             |
+| FP16      | 0.299        | 383.576        | 0.532        | 384.805        | 1.779             | 1.003             |
+| BF16      | 0.298        | 383.576        | 0.527        | 384.805        | 1.768             | 1.003             |
 
 ![alt text](../figs/mace_layer_bm_fp32_gpu_time.png)
 
@@ -94,6 +94,8 @@ def loss_fn(out):
 ### Sparse Graph Results (math_dtype = fp64)
 
 The sparse graph configuration uses edge dimensions of (2, E), where E represents the number of edges.
+
+JIT IMPLEMENTATION everywhere above
 
 #### Layer 0 Precision Comparison
 
