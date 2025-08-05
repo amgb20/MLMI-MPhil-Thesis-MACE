@@ -213,11 +213,6 @@ def main():
     # sanity check printing
     get_dimensions(tp0, tp1, in_ir0, attr_ir0, out_ir0, in_ir1, attr_ir1, out_ir1)
 
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print("Using device:", device)
-    torch.manual_seed(0)
-
     # we are building for the first layer and second layer
     poly0 = make_poly(in_ir0, attr_ir0, out_ir0, math_dtype=torch.float64, device=device)
     poly1 = make_poly(in_ir1, attr_ir1, out_ir1, math_dtype=torch.float64, device=device)

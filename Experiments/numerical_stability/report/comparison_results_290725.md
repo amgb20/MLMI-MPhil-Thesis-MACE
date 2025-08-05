@@ -101,27 +101,27 @@ JIT IMPLEMENTATION everywhere above
 
 | Pass Type | Precision | Max Absolute Error | Max Relative Error |
 |-----------|-----------|-------------------|-------------------|
-| **Forward** | FP32 | 0.000004 | 0.094181 |
-| **Forward** | TF32 | 0.000004 | 0.094181 |
-| **Forward** | FP16 | 0.032195 | 3438.831517 |
-| **Forward** | BF16 | 0.312769 | 13234.022459 |
-| **Backward** | FP32 | 0.000385 | 0.035966 |
-| **Backward** | TF32 | 0.000385 | 0.035966 |
-| **Backward** | FP16 | 3.275100 | 266.350737 |
-| **Backward** | BF16 | 21.635856 | 778.698955 |
+| **Forward** | FP32 | 0.000007 | 0.004488 |
+| **Forward** | TF32 | 0.000007 | 0.004488 |
+| **Forward** | FP16 | 0.057059 | 23.742293 |
+| **Forward** | BF16 | 0.433066 | 360.530112 |
+| **Backward** | FP32 | 0.151346 | 0.013331 |
+| **Backward** | TF32 | 0.166971 | 0.013962 |
+| **Backward** | FP16 | ∞ | ∞ |
+| **Backward** | BF16 | 9832.121117 | 1612.112780 |
 
 #### Layer 1 Precision Comparison
 
 | Pass Type | Precision | Max Absolute Error | Max Relative Error |
 |-----------|-----------|-------------------|-------------------|
-| **Forward** | FP32 | 0.000004 | 0.118674 |
-| **Forward** | TF32 | 0.000004 | 0.118674 |
-| **Forward** | FP16 | 0.025441 | 1127.853786 |
-| **Forward** | BF16 | 0.209613 | 10074.333409 |
-| **Backward** | FP32 | 0.000363 | 0.455505 |
-| **Backward** | TF32 | 0.000363 | 0.455505 |
-| **Backward** | FP16 | 2.917152 | 2957.682628 |
-| **Backward** | BF16 | 25.295468 | 15769.572075 |
+| **Forward** | FP32 | 0.000007 | 0.005693 |
+| **Forward** | TF32 | 0.000007 | 0.005693 |
+| **Forward** | FP16 | 0.059467 | 77.363251 |
+| **Forward** | BF16 | 0.503706 | 377.307094 |
+| **Backward** | FP32 | 0.148870 | 0.003676 |
+| **Backward** | TF32 | 0.148870 | 0.004780 |
+| **Backward** | FP16 | ∞ | ∞ |
+| **Backward** | BF16 | 8024.170960 | 103.230761 |
 
 ### Key Observations
 
