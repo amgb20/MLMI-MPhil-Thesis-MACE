@@ -10,23 +10,28 @@ import copy
 import pandas as pd
 warnings.filterwarnings("ignore")
 import logging
-logging.basicConfig(level=logging.INFO, format="%(message)s")
 import types
 import copy
 from e3nn.o3 import Irreps
 import cuequivariance   as cue
 import cuequivariance_torch as cuet
+import memory_test.get_memory_allocation as get_memory_allocation
+
+from utils.get_logging_profile import logger
+from utils.config import get_default_model_config, data_prep
+from utils.get_gpu_details import get_gpu_with_least_memory
 
 try:
     import cuequivariance as cue
     cueq_available = True
-    print("✓ cuEquivariance library is available")
+    logger.info("✓ cuEquivariance library is available")
 except ImportError:
     cueq_available = False
-    print("✗ cuEquivariance library is not available - cuEq will be disabled")
+    logger.info("✗ cuEquivariance library is not available - cuEq will be disabled")
 
 import torch
 from e3nn import o3
+import gc
 
 # Flag: is cuEq available?
 try:
@@ -35,6 +40,49 @@ try:
     CUET_AVAILABLE = True
 except ImportError:
     CUET_AVAILABLE = False
+
+
+def ensure_torch_device(device_like) -> torch.device:
+    """Return a valid torch.device from various inputs."""
+    if isinstance(device_like, torch.device):
+        return device_like
+    if isinstance(device_like, int):
+        return torch.device(f"cuda:{device_like}")
+    if isinstance(device_like, str):
+        return torch.device(device_like)
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def is_cuda_device(device: torch.device) -> bool:
+    try:
+        return device is not None and device.type == "cuda" and torch.cuda.is_available()
+    except Exception:
+        return False
+
+
+def copy_state_dict_cast(
+    src_module: torch.nn.Module,
+    dst_module: torch.nn.Module,
+    dtype: torch.dtype,
+    device: torch.device,
+):
+    """
+    Copy parameters/buffers from src to dst, casting to dtype and moving to device.
+    Falls back silently if unexpected keys exist.
+    """
+    try:
+        src_state = src_module.impl.state_dict()
+        cast_state = {}
+        for key, value in src_state.items():
+            if torch.is_tensor(value):
+                cast_state[key] = value.detach().to(device=device, dtype=dtype)
+            else:
+                cast_state[key] = value
+        # Load into destination; ignore unexpected/missing to be robust across backends
+        dst_module.impl.load_state_dict(cast_state, strict=False)
+    except Exception as exc:
+        logger.warning(f"Could not copy state dict between modules: {exc}")
+
 
 class LinearLayer(torch.nn.Module):
     """
@@ -62,7 +110,7 @@ class LinearLayer(torch.nn.Module):
                 layout="mul_ir",
                 shared_weights=shared_weights,
                 math_dtype=math_dtype,
-                use_fallback=True,
+                use_fallback=False,
             ).to(device)
         else:
             self.impl = o3.Linear(
@@ -86,117 +134,256 @@ class LinearLayer(torch.nn.Module):
             output = output.to(x.dtype)
         return output
 
-def get_default_model_config(z_table):
-    # setup some default parameters based on the actual dataset
-    num_elements = len(z_table.zs)
-    # Create atomic energies array with default values for each element
-    # You can adjust these values based on your needs
-    atomic_energies = np.array([-1.0] * num_elements, dtype=np.float64)  # Default energy per element
-    cutoff = 6
-
-    default_model_config = dict(
-            num_elements=num_elements,  # number of chemical elements (dynamic)
-            atomic_energies=atomic_energies,  # atomic energies used for normalisation
-            avg_num_neighbors=180,  # avg number of neighbours of the atoms, used for internal normalisation of messages
-            atomic_numbers=z_table.zs,  # atomic numbers, used to specify chemical element embeddings of the model
-            r_max=cutoff,  # cutoff
-            num_bessel=8,  # number of radial features
-            num_polynomial_cutoff=5,  # smoothness of the radial cutoff
-            max_ell=3,  # expansion order of spherical harmonic adge attributes
-            num_interactions=2,  # number of layers, typically 2
-            interaction_cls_first=modules.interaction_classes["RealAgnosticInteractionBlock"],
-            interaction_cls=modules.interaction_classes["RealAgnosticInteractionBlock"],
-            hidden_irreps=o3.Irreps("128x0e + 128x1o"),  # 8: number of embedding channels, 0e, 1o is specifying which equivariant messages to use. Here up to L_max=1
-            correlation=3,  # correlation order of the messages (body order - 1)
-            MLP_irreps=o3.Irreps("16x0e"),  # number of hidden dimensions of last layer readout MLP
-            gate=torch.nn.functional.silu,  # nonlinearity used in last layer readout MLP
-        )
-
-    return default_model_config
-
-
-def data_prep():
-    single_molecule = ase.io.read('Experiments/numerical_stability/md22_double-walled_nanotube.xyz', index='0')
-
-    # Detect elements present in the dataset
-    atomic_numbers = single_molecule.numbers
-    unique_atomic_numbers = sorted(set(atomic_numbers))
-    print(f"Elements found in dataset: {unique_atomic_numbers}")
-    print(f"Element symbols: {single_molecule.get_chemical_symbols()[:10]}...")  # Show first 10 symbols
+def test_precision_accuracy(layer, input_tensor, reference_output, precision_name):
+    """
+    Test accuracy degradation for a given precision compared to FP64 reference.
     
-    Rcut = 3.0 # cutoff radius
-    # z_table = tools.AtomicNumberTable([1, 6, 8])
-    z_table = tools.AtomicNumberTable(unique_atomic_numbers)
-    print(f"Created z_table with {len(z_table.zs)} elements: {z_table.zs}")
+    Args:
+        input_tensor: Input tensor
+        reference_output: FP64 reference output (keep as FP64 for true comparison)
+        precision_name: Name of the precision being tested
+    
+    Returns:
+        relative_error: Relative error compared to FP64 reference
+        absolute_error: Absolute error compared to FP64 reference
+    """
+    with torch.inference_mode():
+        
+        logger.info(f"input_tensor.dtype: {input_tensor.dtype}")
+        logger.info(f"reference_output.dtype: {reference_output.dtype}")
 
-    config = data.Configuration(
-        atomic_numbers=single_molecule.numbers,
-        positions=single_molecule.positions,
-        properties={},
-        property_weights={},
+        current_output = layer(input_tensor)
+        
+        # Calculate errors against FP64 reference
+        absolute_error = torch.abs(current_output - reference_output)
+        relative_error = absolute_error / (torch.abs(reference_output).clamp_min(1e-6))  # Add small epsilon to avoid division by zero
+        
+        # Compute statistics
+        max_abs_error = torch.max(absolute_error).item()
+        mean_abs_error = torch.mean(absolute_error).item()
+        max_rel_error = torch.max(relative_error).item()
+        mean_rel_error = torch.mean(relative_error).item()
+        
+        logger.info(f"  {precision_name} Accuracy vs FP64 Reference:")
+        logger.info(f"    Max Absolute Error: {max_abs_error:.2e}")
+        logger.info(f"    Mean Absolute Error: {mean_abs_error:.2e}")
+        logger.info(f"    Max Relative Error: {max_rel_error:.2e}")
+        logger.info(f"    Mean Relative Error: {mean_rel_error:.2e}")
+        
+        return {
+            'max_abs_error': max_abs_error,
+            'mean_abs_error': mean_abs_error,
+            'max_rel_error': max_rel_error,
+            'mean_rel_error': mean_rel_error
+        }
+
+def benchmark_precision_effects(irreps_in, irreps_out, input_tensor, device, warmup=10, runs=50, use_cueq=False, layer_number=None):
+    """
+    Benchmark e3nn linear layers at different precisions and measure accuracy degradation.
+    
+    Args:
+        irreps_in: Input irreps
+        irreps_out: Output irreps
+        input_tensor: Input tensor (FP64)
+        device: Device to run on
+        warmup: Number of warmup runs
+        runs: Number of benchmark runs
+    
+    Returns:
+        results: Dictionary with benchmark and accuracy results
+    """
+    logger.info(f"\n{'='*60}")
+    logger.info(f"PRECISION EFFECTS TESTING (e3nn Linear Layers)")
+    logger.info(f"{'='*60}")
+    
+    # Create layers at different precisions - only FP64 and FP32
+    precisions = [
+        (torch.float64, "FP64"),
+        (torch.float32, "FP32")
+    ]
+    
+    results = {}
+    
+    # First, get FP64 reference output with a single parameter set to be reused
+    logger.info(f"\nGenerating FP64 reference output with fixed weights...")
+    fp64_layer = LinearLayer(
+        irreps_in,
+        irreps_out,
+        use_cueq=use_cueq,
+        math_dtype=torch.float64,
+        device=device,
     )
+    with torch.inference_mode():
+        reference_output = fp64_layer(input_tensor)
+    
+    # Test each precision
+    for math_dtype, precision_name in precisions:
+        logger.info(f"\n{'-'*40}")
+        logger.info(f"Testing {precision_name} precision...")
+        logger.info(f"{'-'*40}")
+        
+        # Create or reuse layer with specific precision, ensuring identical weights
+        if precision_name == "FP64":
+            layer = fp64_layer
+            input_precision = input_tensor
+        else:
+            layer = LinearLayer(
+                irreps_in,
+                irreps_out,
+                use_cueq=use_cueq,
+                math_dtype=math_dtype,
+                device=device,
+            )
+            copy_state_dict_cast(fp64_layer, layer, dtype=math_dtype, device=device)
+            # Convert input to same precision for fair comparison
+            input_precision = input_tensor.to(math_dtype)
+        
+        # Benchmark performance
+        time_ms, peak_mem_bytes, peak_mem_reserved, output_dtype = benchmark_linear_up(layer, input_precision, warmup, runs, precision_name, layer_number, device)
+        
+        # Test accuracy degradation
+        accuracy_results = test_precision_accuracy(layer, input_precision, reference_output, precision_name)
+        
+        # Store results
+        results[precision_name] = {
+            'time_ms': time_ms,
+            'peak_mem_mb': peak_mem_bytes / 1024**2,
+            'peak_mem_reserved_mb': peak_mem_reserved / 1024**2,
+            'output_dtype': output_dtype,
+            'accuracy': accuracy_results
+        }
+        
+        logger.info(f"  Performance: {time_ms:.2f} ms, Peak Mem Allocated: {peak_mem_bytes/1024**2:.2f} MB, Peak Mem Reserved: {peak_mem_reserved/1024**2:.2f} MB")
+        logger.info(f"  Output dtype: {output_dtype}")
+    
+    return results
 
-    # we handle configurations using the AtomicData class
-    batch = data.AtomicData.from_config(config, z_table=z_table, cutoff=Rcut)
+def analyze_precision_results(results):
+    """
+    Analyze and display precision effects results.
+    """
+    logger.info(f"\n{'='*60}")
+    logger.info(f"PRECISION EFFECTS ANALYSIS (FP32 vs FP64)")
+    logger.info(f"{'='*60}")
+    
+    # Performance comparison
+    logger.info(f"\nPerformance Comparison:")
+    fp64_time = results['FP64']['time_ms']
+    fp32_time = results['FP32']['time_ms']
+    
+    logger.info(f"  FP64: {fp64_time:.2f} ms (baseline)")
+    logger.info(f"  FP32: {fp32_time:.2f} ms ({fp64_time/fp32_time:.2f}x speedup)")
+    
+    # Memory comparison
+    logger.info(f"\nMemory Usage:")
+    fp64_mem = results['FP64']['peak_mem_mb']
+    fp32_mem = results['FP32']['peak_mem_mb']
+    
+    logger.info(f"  FP64: {fp64_mem:.2f} MB (baseline)")
+    logger.info(f"  FP32: {fp32_mem:.2f} MB ({fp64_mem/fp32_mem:.2f}x memory reduction)")
+    
+    # Accuracy degradation analysis
+    logger.info(f"\nAccuracy Degradation Analysis:")
+    fp64_acc = results['FP64']['accuracy']
+    fp32_acc = results['FP32']['accuracy']
+    
+    logger.info(f"  FP32 vs FP64:")
+    logger.info(f"    Max Absolute Error: {fp32_acc['max_abs_error']:.2e}")
+    logger.info(f"    Mean Absolute Error: {fp32_acc['mean_abs_error']:.2e}")
+    logger.info(f"    Max Relative Error: {fp32_acc['max_rel_error']:.2e}")
+    logger.info(f"    Mean Relative Error: {fp32_acc['mean_rel_error']:.2e}")
+    
+    # Summary
+    logger.info(f"\nSummary:")
+    logger.info(f"  ✓ FP32 provides speedup: {fp64_time/fp32_time:.2f}x faster than FP64")
+    logger.info(f"  ✓ FP32 reduces memory usage: {fp64_mem/fp32_mem:.2f}x less memory than FP64")
+    logger.info(f"  ✓ FP32 causes accuracy degradation: {fp32_acc['max_rel_error']:.2e} max relative error")
+    
+    return results
 
-    vectors, lengths = modules.utils.get_edge_vectors_and_lengths(
-    positions=batch["positions"],
-    edge_index=batch["edge_index"],
-    shifts=batch["shifts"],
-    )
-    print(f'there are {batch.positions.shape[0]} nodes and {len(lengths)} edges')
-    print(f'lengths is shape {lengths.shape}')
-    print(f'vectors is shape {vectors.shape}')
 
-    return batch, lengths, vectors, z_table
+def benchmark_linear_up(linear_up_fn, inputs, warmup=10, runs=50, precision_name=None, layer_number=None, device=None):
 
-
-def benchmark_linear_up(linear_up_fn, inputs, warmup=10, runs=50):
-
-    traced_fn = torch.jit.trace(linear_up_fn, (inputs,))
+    traced_fn = torch.jit.trace(linear_up_fn, inputs)
     
     with torch.inference_mode():
         # if the inputs is a tuple, unpack it
         if isinstance(inputs, tuple):
-            output = traced_fn(*inputs)
+            _ = traced_fn(*inputs)
         else:
-            output = traced_fn(inputs)
-    torch.cuda.synchronize()
+            _ = traced_fn(inputs)
+    if is_cuda_device(device):
+        torch.cuda.synchronize(device)
 
-    for _ in range(warmup):
-        if isinstance(inputs, tuple):
-            traced_fn(*inputs)
-        else:
-            traced_fn(inputs)
-    torch.cuda.synchronize()
+    with torch.inference_mode():
+        for _ in range(warmup):
+            if isinstance(inputs, tuple):
+                traced_fn(*inputs)
+            else:
+                traced_fn(inputs)
+    if is_cuda_device(device):
+        torch.cuda.synchronize(device)
+        torch.cuda.empty_cache()
+    gc.collect()
+    if is_cuda_device(device):
+        torch.cuda.reset_peak_memory_stats(device=device)
 
-    torch.cuda.reset_peak_memory_stats()
+    if is_cuda_device(device):
+        get_memory_allocation.start_record_memory_history()
 
     time_ms = []
-    for _ in range(runs):
-        start = torch.cuda.Event(enable_timing=True)
-        end   = torch.cuda.Event(enable_timing=True)
-        start.record()
-        traced_fn(inputs)
-        end.record()
-        torch.cuda.synchronize()
-        time_ms.append(start.elapsed_time(end))
+    with torch.inference_mode():
+        if is_cuda_device(device):
+            for _ in range(runs):
+                start = torch.cuda.Event(enable_timing=True)
+                end   = torch.cuda.Event(enable_timing=True)
+                start.record()
+                if isinstance(inputs, tuple):
+                    traced_fn(*inputs)
+                else:
+                    traced_fn(inputs)
+                end.record()
+                torch.cuda.synchronize(device)
+                time_ms.append(start.elapsed_time(end))
+        else:
+            import time
+            for _ in range(runs):
+                t0 = time.perf_counter()
+                if isinstance(inputs, tuple):
+                    traced_fn(*inputs)
+                else:
+                    traced_fn(inputs)
+                t1 = time.perf_counter()
+                time_ms.append((t1 - t0) * 1000.0)
 
     mean_time_ms = (sum(time_ms)/len(time_ms))
-    peak_mem_bytes = torch.cuda.max_memory_allocated()
+    if is_cuda_device(device):
+        peak_mem_bytes = torch.cuda.max_memory_allocated(device)
+        peak_mem_reserved = torch.cuda.max_memory_reserved(device)
+        get_memory_allocation.export_memory_snapshot(precision_name, layer_number)
+        get_memory_allocation.stop_record_memory_history()
+    else:
+        peak_mem_bytes = 0
+        peak_mem_reserved = 0
     
     # Test output precision
-    test_output = traced_fn(inputs)
+    test_output = traced_fn(*inputs) if isinstance(inputs, tuple) else traced_fn(inputs)
     output_dtype = test_output.dtype
     
-    return mean_time_ms, peak_mem_bytes, output_dtype
+    return mean_time_ms, peak_mem_bytes, peak_mem_reserved, output_dtype
 
 def main():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print("Using device:", device)
+    # Check available devices and select the best one
+    if torch.cuda.is_available():
+        device = ensure_torch_device(get_gpu_with_least_memory())
+        logger.info(f"Using device: {device}")
+    else:
+        device = torch.device("cpu")
+        logger.info("CUDA not available, using CPU")
+    
     torch.manual_seed(0)
     
-    batch, lengths, vectors, z_table = data_prep()
+    _, _, _, z_table = data_prep()
     cfg   = get_default_model_config(z_table)
     model = modules.MACE(**cfg).to(device=device, dtype=torch.float64)
 
@@ -216,64 +403,28 @@ def main():
         Irreps(tp1.irreps_out),
     )
 
-    # get the l0 of linear_up - transforms from node_feats_irreps to edge_irreps
-    # For simplicity, we'll use the same irreps as the tensor product layers
-    linear_up0_cueq = LinearLayer(in_ir0, out_ir0, use_cueq=True, math_dtype=torch.float64, device=device)
-    linear_up1_cueq = LinearLayer(in_ir1, out_ir1, use_cueq=True, math_dtype=torch.float64, device=device)
-    linear_up0_e3nn = LinearLayer(in_ir0, out_ir0, use_cueq=False, math_dtype=torch.float64, device=device)
-    linear_up1_e3nn = LinearLayer(in_ir1, out_ir1, use_cueq=False, math_dtype=torch.float64, device=device)
+    N = 1000
+    nf0 = torch.randn(N, in_ir0.dim, dtype=torch.float64).to(device)
+    nf1 = torch.randn(N, in_ir1.dim, dtype=torch.float64).to(device)
 
-    N, E = 100, 10000
-    nf0 = torch.randn(N, in_ir0.dim,    dtype=torch.float64).to(device)
-    nf1 = torch.randn(N, in_ir1.dim,    dtype=torch.float64).to(device)
-    tw0 = torch.randn(E, tp0.weight_numel, dtype=torch.float64).to(device)
-    tw1 = torch.randn(E, tp1.weight_numel, dtype=torch.float64).to(device)
-    ei  = torch.randint(0, N, (2, E), dtype=torch.int64).to(device)
+    # Test precision effects on e3nn linear layers (without cuEquivariance)
+    logger.info("\n" + "="*60)
+    logger.info("PRECISION EFFECTS TESTING (e3nn Linear Layers - No cuEquivariance)")
+    logger.info("="*60)
 
-    # Benchmark cuEquivariance vs e3nn linear layers
-    print("\n" + "="*60)
-    print("BENCHMARK: cuEquivariance vs e3nn Linear Layers")
-    print("="*60)
-    
-    # Verify FP64 precision before benchmarking
-    print(f"\nFP64 Precision Verification:")
-    print(f"nf0 dtype: {nf0.dtype}")
-    print(f"nf1 dtype: {nf1.dtype}")
-    assert nf0.dtype == torch.float64, f"nf0 should be float64, got {nf0.dtype}"
-    assert nf1.dtype == torch.float64, f"nf1 should be float64, got {nf1.dtype}"
-    print("✓ Input tensors are using FP64 precision!")
-    
-    time_ms_cueq_linear_up0, peak_mem_cueq_linear_up0, dtype_cueq_l0 = benchmark_linear_up(linear_up0_cueq, nf0)
-    time_ms_cueq_linear_up1, peak_mem_cueq_linear_up1, dtype_cueq_l1 = benchmark_linear_up(linear_up1_cueq, nf1)
-    time_ms_e3nn_linear_up0, peak_mem_e3nn_linear_up0, dtype_e3nn_l0 = benchmark_linear_up(linear_up0_e3nn, nf0)
-    time_ms_e3nn_linear_up1, peak_mem_e3nn_linear_up1, dtype_e3nn_l1 = benchmark_linear_up(linear_up1_e3nn, nf1)
+    # Benchmark precision effects for linear_up0_e3nn
+    logger.info("\n" + "="*60)
+    logger.info("BENCHMARK: Precision Effects on e3nn Linear Layer 0")
+    logger.info("="*60)
+    precision_results_l0 = benchmark_precision_effects(in_ir0, out_ir0, nf0, device, use_cueq=False, layer_number=0)
+    analyze_precision_results(precision_results_l0)
 
-    print(f"\nBenchmark Results (FP64):")
-    print(f"cuEquivariance linear up0: {time_ms_cueq_linear_up0:.2f} ms, {peak_mem_cueq_linear_up0/1024**2:.2f} MB, output dtype: {dtype_cueq_l0}")
-    print(f"cuEquivariance linear up1: {time_ms_cueq_linear_up1:.2f} ms, {peak_mem_cueq_linear_up1/1024**2:.2f} MB, output dtype: {dtype_cueq_l1}")
-    print(f"e3nn linear up0: {time_ms_e3nn_linear_up0:.2f} ms, {peak_mem_e3nn_linear_up0/1024**2:.2f} MB, output dtype: {dtype_e3nn_l0}")
-    print(f"e3nn linear up1: {time_ms_e3nn_linear_up1:.2f} ms, {peak_mem_e3nn_linear_up1/1024**2:.2f} MB, output dtype: {dtype_e3nn_l1}")
-    
-    # Test precision
-    print(f"\nPrecision Verification:")
-    print(f"Layer 0 cuEquivariance output dtype: {dtype_cueq_l0} {'✓' if dtype_cueq_l0 == torch.float64 else '✗'}")
-    print(f"Layer 0 e3nn output dtype: {dtype_e3nn_l0} {'✓' if dtype_e3nn_l0 == torch.float64 else '✗'}")
-    print(f"Layer 1 cuEquivariance output dtype: {dtype_cueq_l1} {'✓' if dtype_cueq_l1 == torch.float64 else '✗'}")
-    print(f"Layer 1 e3nn output dtype: {dtype_e3nn_l1} {'✓' if dtype_e3nn_l1 == torch.float64 else '✗'}")
-    
-    # Assert all outputs are FP64
-    assert dtype_cueq_l0 == torch.float64, f"cuEquivariance Layer 0 output should be float64, got {dtype_cueq_l0}"
-    assert dtype_e3nn_l0 == torch.float64, f"e3nn Layer 0 output should be float64, got {dtype_e3nn_l0}"
-    assert dtype_cueq_l1 == torch.float64, f"cuEquivariance Layer 1 output should be float64, got {dtype_cueq_l1}"
-    assert dtype_e3nn_l1 == torch.float64, f"e3nn Layer 1 output should be float64, got {dtype_e3nn_l1}"
-    print("✓ All output tensors are using FP64 precision!")
-    
-    # Calculate speedups
-    speedup_l0 = time_ms_e3nn_linear_up0 / time_ms_cueq_linear_up0
-    speedup_l1 = time_ms_e3nn_linear_up1 / time_ms_cueq_linear_up1
-    print(f"\nSpeedup (e3nn/cuEquivariance):")
-    print(f"Layer 0: {speedup_l0:.2f}x")
-    print(f"Layer 1: {speedup_l1:.2f}x")
+    # Benchmark precision effects for linear_up1_e3nn
+    logger.info("\n" + "="*60)
+    logger.info("BENCHMARK: Precision Effects on e3nn Linear Layer 1")
+    logger.info("="*60)
+    precision_results_l1 = benchmark_precision_effects(in_ir1, out_ir1, nf1, device, use_cueq=False, layer_number=1)
+    analyze_precision_results(precision_results_l1)
 
 if __name__ == "__main__":
     main()

@@ -5,3 +5,7 @@ Experiments/Official MACE notebook/MACE_models/
 *.xlsx
 mace/mace/calculators/foundations_models/*.model
 *.pdf
+*.pickle
+*.log
+*.txt
+*__pycache__

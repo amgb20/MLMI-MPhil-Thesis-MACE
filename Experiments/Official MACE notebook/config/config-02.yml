@@ -17,3 +17,6 @@ batch_size: 10
 max_num_epochs: 100
 swa: True
 seed: 123
+enable_cueq: True
+only_cueq: True
+default_dtype: float16

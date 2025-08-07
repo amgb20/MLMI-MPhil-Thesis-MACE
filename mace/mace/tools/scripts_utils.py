@@ -532,6 +532,7 @@ def get_avg_num_neighbors(head_configs, args, train_loader, device):
         avg_num_neighbors = modules.compute_avg_num_neighbors(train_loader)
         if args.distributed:
             num_graphs = torch.tensor(len(train_loader.dataset)).to(device)
+            logging.info(f"dtype of num_graphs: {num_graphs.dtype}")
             num_neighbors = num_graphs * torch.tensor(avg_num_neighbors).to(device)
             torch.distributed.all_reduce(num_graphs, op=torch.distributed.ReduceOp.SUM)
             torch.distributed.all_reduce(

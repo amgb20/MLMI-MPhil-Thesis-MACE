@@ -127,7 +127,9 @@ def run(args) -> None:
     logging.debug(f"Configuration: {args}")
 
     tools.set_default_dtype(args.default_dtype)
+    logging.info(f"Using default dtype: {args.default_dtype}")
     device = tools.init_device(args.device)
+    logging.info(f"Using device: {device}")
     commit = print_git_commit()
     model_foundation: Optional[torch.nn.Module] = None
     foundation_model_avg_num_neighbors = 0
@@ -641,7 +643,7 @@ def run(args) -> None:
         )
 
     loss_fn = get_loss_fn(args, dipole_only, args.compute_dipole)
-    args.avg_num_neighbors = get_avg_num_neighbors(head_configs, args, train_loader, device)
+    args.avg_num_neighbors = get_avg_num_neighbors(head_configs, args, train_loader, device) # this is computing in float16
 
     # Model
     model, output_args = configure_model(args, train_loader, atomic_energies, model_foundation, heads, z_table, head_configs)
