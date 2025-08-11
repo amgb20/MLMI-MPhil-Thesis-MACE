@@ -1,4 +1,5 @@
 import torch
+import argparse
 from mace import data, modules, tools
 import numpy as np
 import torch.nn.functional
@@ -103,13 +104,23 @@ class LinearLayer(torch.nn.Module):
         device: torch.device
     ):
         super().__init__()
+        # Track math dtype used for compute/accumulation
+        self.math_dtype = None
         if use_cueq:
+            # Prefer FP32 math for numerical stability while allowing low-precision storage;
+            # for FP64 storage, use FP64 math to match available kernels.
+            forced_math_dtype = torch.float32 if math_dtype != torch.float64 else torch.float64
+            self.math_dtype = forced_math_dtype
+            logger.info(
+                f"Using cuEq backend: math_dtype={forced_math_dtype} with storage dtype={math_dtype}"
+            )
             self.impl = cuet.Linear(
                 cue.Irreps("O3", irreps_in),
                 cue.Irreps("O3", irreps_out),
                 layout="mul_ir",
                 shared_weights=shared_weights,
-                math_dtype=math_dtype,
+                dtype=math_dtype,           # storage/parameter dtype (can be fp16/bf16/fp32/fp64)
+                math_dtype=forced_math_dtype,  # compute/accumulation dtype (force fp32)
                 use_fallback=False,
             ).to(device)
         else:
@@ -122,16 +133,21 @@ class LinearLayer(torch.nn.Module):
             # Ensure parameters are in the correct dtype
             for param in self.impl.parameters():
                 param.data = param.data.to(math_dtype)
+            self.math_dtype = math_dtype
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         x : Tensor of shape [..., irreps_in.dim]
         returns y : Tensor of shape [..., irreps_out.dim]
         """
+        # Always compute in the layer's math precision, then cast back to input dtype
+        input_dtype = x.dtype
+        if self.math_dtype is not None and x.dtype != self.math_dtype:
+            x = x.to(self.math_dtype)
         output = self.impl(x)
         # Ensure output is in the same dtype as input
-        if output.dtype != x.dtype:
-            output = output.to(x.dtype)
+        if output.dtype != input_dtype:
+            output = output.to(input_dtype)
         return output
 
 def run_linear_backward_pass(
@@ -222,7 +238,18 @@ def test_precision_accuracy(layer, input_tensor, reference_output, precision_nam
             'mean_rel_error': mean_rel_error
         }
 
-def benchmark_precision_effects(irreps_in, irreps_out, input_tensor, device, warmup=10, runs=50, use_cueq=False, layer_number=None):
+def benchmark_precision_effects(
+    irreps_in,
+    irreps_out,
+    input_tensor,
+    device,
+    warmup=10,
+    runs=50,
+    use_cueq=False,
+    layer_number=None,
+    backend_name: str | None = None,
+    precisions: list[tuple[torch.dtype, str]] | None = None,
+):
     """
     Benchmark e3nn linear layers at different precisions and measure accuracy degradation.
     
@@ -237,15 +264,18 @@ def benchmark_precision_effects(irreps_in, irreps_out, input_tensor, device, war
     Returns:
         results: Dictionary with benchmark and accuracy results
     """
+    if backend_name is None:
+        backend_name = "cuEquivariance" if use_cueq else "e3nn"
     logger.info(f"\n{'='*60}")
-    logger.info(f"PRECISION EFFECTS TESTING (e3nn Linear Layers)")
+    logger.info(f"PRECISION EFFECTS TESTING ({backend_name} Linear Layers)")
     logger.info(f"{'='*60}")
     
-    # Create layers at different precisions - only FP64 and FP32
-    precisions = [
-        (torch.float64, "FP64"),
-        (torch.float32, "FP32")
-    ]
+    # Create layers at different precisions (default FP64 + FP32). For cuEq, limit math to FP64/FP32.
+    if precisions is None:
+        precisions = [
+            (torch.float64, "FP64"),
+            (torch.float32, "FP32"),
+        ]
     
     results = {}
     
@@ -259,40 +289,50 @@ def benchmark_precision_effects(irreps_in, irreps_out, input_tensor, device, war
         device=device,
     )
     with torch.inference_mode():
-        reference_output = fp64_layer(input_tensor)
+        reference_output = fp64_layer(input_tensor.to(dtype=torch.float64))
     # FP64 backward baseline (loss and gradients)
-    fp64_loss_base, fp64_in_grad_base, fp64_param_grads_base = run_linear_backward_pass(fp64_layer, input_tensor)
+    fp64_loss_base, fp64_in_grad_base, fp64_param_grads_base = run_linear_backward_pass(
+        fp64_layer, input_tensor.to(dtype=torch.float64)
+    )
     
     # Test each precision
     for math_dtype, precision_name in precisions:
         logger.info(f"\n{'-'*40}")
         logger.info(f"Testing {precision_name} precision...")
         logger.info(f"{'-'*40}")
-        
-        # Create or reuse layer with specific precision, ensuring identical weights
-        if precision_name == "FP64":
-            layer = fp64_layer
-            input_precision = input_tensor
-        else:
-            layer = LinearLayer(
-                irreps_in,
-                irreps_out,
-                use_cueq=use_cueq,
-                math_dtype=math_dtype,
-                device=device,
+        try:
+            # Create or reuse layer with specific precision, ensuring identical weights
+            if precision_name == "FP64":
+                layer = fp64_layer
+                input_precision = input_tensor.to(dtype=torch.float64)
+            else:
+                # For cuEq we must keep math in FP32, but we can set storage dtype low-precision.
+                # We achieve this by constructing the layer with "math_dtype" equal to the desired storage dtype;
+                # the class forces math to FP32 internally (or FP64 for FP64 storage).
+                layer = LinearLayer(
+                    irreps_in,
+                    irreps_out,
+                    use_cueq=use_cueq,
+                    math_dtype=math_dtype,
+                    device=device,
+                )
+                copy_state_dict_cast(fp64_layer, layer, dtype=math_dtype, device=device)
+                # Convert input to same precision for fair comparison
+                input_precision = input_tensor.to(math_dtype)
+            
+            # Benchmark performance
+            time_ms, peak_mem_bytes, peak_mem_reserved, output_dtype = benchmark_linear_up(
+                layer, input_precision, warmup, runs, precision_name, layer_number, device
             )
-            copy_state_dict_cast(fp64_layer, layer, dtype=math_dtype, device=device)
-            # Convert input to same precision for fair comparison
-            input_precision = input_tensor.to(math_dtype)
-        
-        # Benchmark performance
-        time_ms, peak_mem_bytes, peak_mem_reserved, output_dtype = benchmark_linear_up(layer, input_precision, warmup, runs, precision_name, layer_number, device)
-        
-        # Test accuracy degradation
-        accuracy_results = test_precision_accuracy(layer, input_precision, reference_output, precision_name)
-        
-        # Backward pass with loss = out.pow(2).sum()
-        loss, input_grad, param_grads = run_linear_backward_pass(layer, input_precision)
+            
+            # Test accuracy degradation
+            accuracy_results = test_precision_accuracy(layer, input_precision, reference_output, precision_name)
+            
+            # Backward pass with loss = out.pow(2).sum()
+            loss, input_grad, param_grads = run_linear_backward_pass(layer, input_precision)
+        except Exception as exc:
+            logger.info(f"Skipping {backend_name} {precision_name}: unsupported or failed with error: {exc}")
+            continue
         input_grad_norm = None if input_grad is None else input_grad.norm().item()
         total_param_grad_sq = 0.0
         per_param_grad_norms = {}
@@ -356,7 +396,8 @@ def benchmark_precision_effects(irreps_in, irreps_out, input_tensor, device, war
                 'input_grad_max_abs': in_max_abs,
                 'param_grad_rel_l2': float(total_param_grad_rel_l2),
                 'per_param_grad_rel_l2': per_param_grad_rel_l2,
-            }
+            },
+            'backend': backend_name,
         }
         
         logger.info(f"  Performance: {time_ms:.2f} ms, Peak Mem Allocated: {peak_mem_bytes/1024**2:.2f} MB, Peak Mem Reserved: {peak_mem_reserved/1024**2:.2f} MB")
@@ -375,7 +416,8 @@ def analyze_precision_results(results):
     Analyze and display precision effects results.
     """
     logger.info(f"\n{'='*60}")
-    logger.info(f"PRECISION EFFECTS ANALYSIS (FP32 vs FP64)")
+    backend = results.get('FP64', {}).get('backend', 'Unknown') if isinstance(results.get('FP64'), dict) and 'backend' in results.get('FP64', {}) else 'Unknown'
+    logger.info(f"PRECISION EFFECTS ANALYSIS ({backend}: FP32 vs FP64)")
     logger.info(f"{'='*60}")
     
     # Performance comparison
@@ -485,6 +527,16 @@ def benchmark_linear_up(linear_up_fn, inputs, warmup=10, runs=50, precision_name
     return mean_time_ms, peak_mem_bytes, peak_mem_reserved, output_dtype
 
 def main():
+    parser = argparse.ArgumentParser(description="Test cuEq/e3nn Linear with forced FP32 math and low-precision storage")
+    parser.add_argument("--backend", choices=["e3nn", "cueq"], default="cueq")
+    parser.add_argument("--N", type=int, default=1000)
+    parser.add_argument("--warmup", type=int, default=10)
+    parser.add_argument("--runs", type=int, default=50)
+    parser.add_argument("--precisions", type=str, default="fp64,fp32,bf16,fp16",
+                        help="Comma-separated precisions from {fp64,fp32,bf16,fp16}")
+    parser.add_argument("--allow-tf32", action="store_true",
+                        help="Allow TF32 on e3nn (otherwise disabled for fairness)")
+    args = parser.parse_args()
     # Check available devices and select the best one
     if torch.cuda.is_available():
         device = ensure_torch_device(get_gpu_with_least_memory())
@@ -515,37 +567,74 @@ def main():
         Irreps(tp1.irreps_out),
     )
 
-    N = 1000
-    nf0 = torch.randn(N, in_ir0.dim, dtype=torch.float64).to(device)
-    nf1 = torch.randn(N, in_ir1.dim, dtype=torch.float64).to(device)
+    N = max(1, int(args.N))
+    nf0 = torch.randn(N, in_ir0.dim, dtype=torch.float64, device=device)
+    nf1 = torch.randn(N, in_ir1.dim, dtype=torch.float64, device=device)
 
-    # For a fair comparison, disable TF32 when running e3nn on CUDA
-    if torch.cuda.is_available():
+    # For a fair comparison, disable TF32 for e3nn unless explicitly allowed
+    if torch.cuda.is_available() and (args.backend == "e3nn") and (not args.allow_tf32):
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
         try:
-            # Force exact FP32 matmuls (no TF32)
             torch.set_float32_matmul_precision("highest")
         except Exception:
             pass
 
-    # Test precision effects on e3nn linear layers (without cuEquivariance)
-    logger.info("\n" + "="*60)
-    logger.info("PRECISION EFFECTS TESTING (e3nn Linear Layers - No cuEquivariance)")
-    logger.info("="*60)
+    # Parse precisions
+    name_to_dtype = {"fp64": torch.float64, "fp32": torch.float32, "bf16": torch.bfloat16, "fp16": torch.float16}
+    requested = [p.strip().lower() for p in args.precisions.split(',') if p.strip()]
+    precisions = []
+    for p in requested:
+        if p == "bf16":
+            # BF16 requires Ampere (SM80+) for cuEq kernels
+            if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
+                logger.info("Skipping BF16: not supported on this device (requires compute capability >= 8).")
+                continue
+        if p == "fp16" and not torch.cuda.is_available():
+            logger.info("Skipping FP16: CUDA not available.")
+            continue
+        if p in name_to_dtype:
+            precisions.append((name_to_dtype[p], p.upper()))
+    if not precisions:
+        precisions = [(torch.float64, "FP64"), (torch.float32, "FP32")]
 
-    # Benchmark precision effects for linear_up0_e3nn
+    use_cueq_backend = args.backend == "cueq"
+    backend_label = "cuEquivariance" if use_cueq_backend else "e3nn"
+
+    # Benchmark precision effects for linear_up0
     logger.info("\n" + "="*60)
-    logger.info("BENCHMARK: Precision Effects on e3nn Linear Layer 0")
+    logger.info(f"BENCHMARK: Precision Effects on {backend_label} Linear Layer 0")
     logger.info("="*60)
-    precision_results_l0 = benchmark_precision_effects(in_ir0, out_ir0, nf0, device, use_cueq=False, layer_number=0)
+    precision_results_l0 = benchmark_precision_effects(
+        in_ir0,
+        out_ir0,
+        nf0,
+        device,
+        warmup=args.warmup,
+        runs=args.runs,
+        use_cueq=use_cueq_backend,
+        layer_number=0,
+        backend_name=backend_label,
+        precisions=precisions,
+    )
     analyze_precision_results(precision_results_l0)
 
-    # Benchmark precision effects for linear_up1_e3nn
+    # Benchmark precision effects for linear_up1
     logger.info("\n" + "="*60)
-    logger.info("BENCHMARK: Precision Effects on e3nn Linear Layer 1")
+    logger.info(f"BENCHMARK: Precision Effects on {backend_label} Linear Layer 1")
     logger.info("="*60)
-    precision_results_l1 = benchmark_precision_effects(in_ir1, out_ir1, nf1, device, use_cueq=False, layer_number=1)
+    precision_results_l1 = benchmark_precision_effects(
+        in_ir1,
+        out_ir1,
+        nf1,
+        device,
+        warmup=args.warmup,
+        runs=args.runs,
+        use_cueq=use_cueq_backend,
+        layer_number=1,
+        backend_name=backend_label,
+        precisions=precisions,
+    )
     analyze_precision_results(precision_results_l1)
 
 if __name__ == "__main__":

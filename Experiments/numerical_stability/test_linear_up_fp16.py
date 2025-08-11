@@ -241,11 +241,15 @@ def benchmark_precision_effects(irreps_in, irreps_out, input_tensor, device, war
     logger.info(f"PRECISION EFFECTS TESTING (e3nn Linear Layers)")
     logger.info(f"{'='*60}")
     
-    # Create layers at different precisions - only FP64 and FP32
+    # Create layers at different precisions: always FP64/FP32; add FP16/BF16 on CUDA
     precisions = [
         (torch.float64, "FP64"),
-        (torch.float32, "FP32")
+        (torch.float32, "FP32"),
     ]
+    if is_cuda_device(device):
+        precisions.append((torch.float16, "FP16"))
+        if torch.cuda.is_bf16_supported():
+            precisions.append((torch.bfloat16, "BF16"))
     
     results = {}
     
@@ -304,7 +308,7 @@ def benchmark_precision_effects(irreps_in, irreps_out, input_tensor, device, war
         param_grad_norm = total_param_grad_sq ** 0.5
 
         # Compare backward results to FP64 baseline
-        eps = 1e-12
+        eps = 1e-6
         loss_abs_diff = abs(loss.item() - fp64_loss_base.item())
         loss_rel_diff = loss_abs_diff / max(abs(fp64_loss_base.item()), eps)
 
@@ -375,35 +379,55 @@ def analyze_precision_results(results):
     Analyze and display precision effects results.
     """
     logger.info(f"\n{'='*60}")
-    logger.info(f"PRECISION EFFECTS ANALYSIS (FP32 vs FP64)")
+    logger.info(f"PRECISION EFFECTS ANALYSIS (vs FP64 baseline)")
     logger.info(f"{'='*60}")
     
     # Performance comparison
     logger.info(f"\nPerformance Comparison:")
     fp64_time = results['FP64']['time_ms']
     fp32_time = results['FP32']['time_ms']
+    fp16_time = results['FP16']['time_ms']
+    bf16_time = results['BF16']['time_ms']
     
     logger.info(f"  FP64: {fp64_time:.2f} ms (baseline)")
     logger.info(f"  FP32: {fp32_time:.2f} ms ({fp64_time/fp32_time:.2f}x speedup)")
-    
+    logger.info(f"  FP16: {fp16_time:.2f} ms ({fp64_time/fp16_time:.2f}x speedup)")
+    logger.info(f"  BF16: {bf16_time:.2f} ms ({fp64_time/bf16_time:.2f}x speedup)")
     # Memory comparison
     logger.info(f"\nMemory Usage:")
     fp64_mem = results['FP64']['peak_mem_mb']
     fp32_mem = results['FP32']['peak_mem_mb']
-    
+    fp16_mem = results['FP16']['peak_mem_mb']
+    bf16_mem = results['BF16']['peak_mem_mb']
     logger.info(f"  FP64: {fp64_mem:.2f} MB (baseline)")
     logger.info(f"  FP32: {fp32_mem:.2f} MB ({fp64_mem/fp32_mem:.2f}x memory reduction)")
+    logger.info(f"  FP16: {fp16_mem:.2f} MB ({fp64_mem/fp16_mem:.2f}x memory reduction)")
+    logger.info(f"  BF16: {bf16_mem:.2f} MB ({fp64_mem/bf16_mem:.2f}x memory reduction)")
     
     # Accuracy degradation analysis
     logger.info(f"\nAccuracy Degradation Analysis:")
     fp64_acc = results['FP64']['accuracy']
-    fp32_acc = results['FP32']['accuracy']
-    
-    logger.info(f"  FP32 vs FP64:")
-    logger.info(f"    Max Absolute Error: {fp32_acc['max_abs_error']:.2e}")
-    logger.info(f"    Mean Absolute Error: {fp32_acc['mean_abs_error']:.2e}")
-    logger.info(f"    Max Relative Error: {fp32_acc['max_rel_error']:.2e}")
-    logger.info(f"    Mean Relative Error: {fp32_acc['mean_rel_error']:.2e}")
+    if 'FP32' in results:
+        fp32_acc = results['FP32']['accuracy']
+        logger.info(f"  FP32 vs FP64:")
+        logger.info(f"    Max Absolute Error: {fp32_acc['max_abs_error']:.2e}")
+        logger.info(f"    Mean Absolute Error: {fp32_acc['mean_abs_error']:.2e}")
+        logger.info(f"    Max Relative Error: {fp32_acc['max_rel_error']:.2e}")
+        logger.info(f"    Mean Relative Error: {fp32_acc['mean_rel_error']:.2e}")
+    if 'FP16' in results:
+        fp16_acc = results['FP16']['accuracy']
+        logger.info(f"  FP16 vs FP64:")
+        logger.info(f"    Max Absolute Error: {fp16_acc['max_abs_error']:.2e}")
+        logger.info(f"    Mean Absolute Error: {fp16_acc['mean_abs_error']:.2e}")
+        logger.info(f"    Max Relative Error: {fp16_acc['max_rel_error']:.2e}")
+        logger.info(f"    Mean Relative Error: {fp16_acc['mean_rel_error']:.2e}")
+    if 'BF16' in results:
+        bf16_acc = results['BF16']['accuracy']
+        logger.info(f"  BF16 vs FP64:")
+        logger.info(f"    Max Absolute Error: {bf16_acc['max_abs_error']:.2e}")
+        logger.info(f"    Mean Absolute Error: {bf16_acc['mean_abs_error']:.2e}")
+        logger.info(f"    Max Relative Error: {bf16_acc['max_rel_error']:.2e}")
+        logger.info(f"    Mean Relative Error: {bf16_acc['mean_rel_error']:.2e}")
     
     # Summary
     logger.info(f"\nSummary:")

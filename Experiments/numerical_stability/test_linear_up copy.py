@@ -1,4 +1,5 @@
 import torch
+import argparse
 from mace import data, modules, tools
 import numpy as np
 import torch.nn.functional
@@ -103,16 +104,20 @@ class LinearLayer(torch.nn.Module):
         device: torch.device
     ):
         super().__init__()
+        self.math_dtype = math_dtype
         if use_cueq:
+            logger.info("Using cuEQ backend")
             self.impl = cuet.Linear(
                 cue.Irreps("O3", irreps_in),
                 cue.Irreps("O3", irreps_out),
                 layout="mul_ir",
                 shared_weights=shared_weights,
+                dtype=math_dtype,
                 math_dtype=math_dtype,
                 use_fallback=False,
             ).to(device)
         else:
+            logger.info("Using e3nn backend")
             self.impl = o3.Linear(
                 irreps_in,
                 irreps_out,
@@ -128,6 +133,9 @@ class LinearLayer(torch.nn.Module):
         x : Tensor of shape [..., irreps_in.dim]
         returns y : Tensor of shape [..., irreps_out.dim]
         """
+        # Ensure input matches the math precision of the underlying implementation
+        if x.dtype != self.math_dtype:
+            x = x.to(self.math_dtype)
         output = self.impl(x)
         # Ensure output is in the same dtype as input
         if output.dtype != x.dtype:
@@ -222,7 +230,19 @@ def test_precision_accuracy(layer, input_tensor, reference_output, precision_nam
             'mean_rel_error': mean_rel_error
         }
 
-def benchmark_precision_effects(irreps_in, irreps_out, input_tensor, device, warmup=10, runs=50, use_cueq=False, layer_number=None):
+def benchmark_precision_effects(
+    irreps_in,
+    irreps_out,
+    input_tensor,
+    device,
+    warmup=10,
+    runs=50,
+    use_cueq=False,
+    layer_number=None,
+    backend_name: str | None = None,
+    precisions: list[tuple[torch.dtype, str]] | None = None,
+    use_trace: bool = True,
+):
     """
     Benchmark e3nn linear layers at different precisions and measure accuracy degradation.
     
@@ -237,15 +257,18 @@ def benchmark_precision_effects(irreps_in, irreps_out, input_tensor, device, war
     Returns:
         results: Dictionary with benchmark and accuracy results
     """
+    if backend_name is None:
+        backend_name = "cuEquivariance" if use_cueq else "e3nn"
     logger.info(f"\n{'='*60}")
-    logger.info(f"PRECISION EFFECTS TESTING (e3nn Linear Layers)")
+    logger.info(f"PRECISION EFFECTS TESTING ({backend_name} Linear Layers)")
     logger.info(f"{'='*60}")
     
-    # Create layers at different precisions - only FP64 and FP32
-    precisions = [
-        (torch.float64, "FP64"),
-        (torch.float32, "FP32")
-    ]
+    # Create layers at different precisions - default FP64 and FP32
+    if precisions is None:
+        precisions = [
+            (torch.float64, "FP64"),
+            (torch.float32, "FP32"),
+        ]
     
     results = {}
     
@@ -259,9 +282,10 @@ def benchmark_precision_effects(irreps_in, irreps_out, input_tensor, device, war
         device=device,
     )
     with torch.inference_mode():
-        reference_output = fp64_layer(input_tensor)
+        # Ensure input matches layer math precision to avoid mixed-dtype kernels
+        reference_output = fp64_layer(input_tensor.to(dtype=torch.float64))
     # FP64 backward baseline (loss and gradients)
-    fp64_loss_base, fp64_in_grad_base, fp64_param_grads_base = run_linear_backward_pass(fp64_layer, input_tensor)
+    fp64_loss_base, fp64_in_grad_base, fp64_param_grads_base = run_linear_backward_pass(fp64_layer, input_tensor.to(dtype=torch.float64))
     
     # Test each precision
     for math_dtype, precision_name in precisions:
@@ -272,7 +296,7 @@ def benchmark_precision_effects(irreps_in, irreps_out, input_tensor, device, war
         # Create or reuse layer with specific precision, ensuring identical weights
         if precision_name == "FP64":
             layer = fp64_layer
-            input_precision = input_tensor
+            input_precision = input_tensor.to(dtype=torch.float64)
         else:
             layer = LinearLayer(
                 irreps_in,
@@ -283,10 +307,19 @@ def benchmark_precision_effects(irreps_in, irreps_out, input_tensor, device, war
             )
             copy_state_dict_cast(fp64_layer, layer, dtype=math_dtype, device=device)
             # Convert input to same precision for fair comparison
-            input_precision = input_tensor.to(math_dtype)
+            input_precision = input_tensor.to(dtype=math_dtype)
         
         # Benchmark performance
-        time_ms, peak_mem_bytes, peak_mem_reserved, output_dtype = benchmark_linear_up(layer, input_precision, warmup, runs, precision_name, layer_number, device)
+        time_ms, peak_mem_bytes, peak_mem_reserved, output_dtype = benchmark_linear_up(
+            layer,
+            input_precision,
+            warmup,
+            runs,
+            precision_name,
+            layer_number,
+            device,
+            use_trace,
+        )
         
         # Test accuracy degradation
         accuracy_results = test_precision_accuracy(layer, input_precision, reference_output, precision_name)
@@ -356,7 +389,8 @@ def benchmark_precision_effects(irreps_in, irreps_out, input_tensor, device, war
                 'input_grad_max_abs': in_max_abs,
                 'param_grad_rel_l2': float(total_param_grad_rel_l2),
                 'per_param_grad_rel_l2': per_param_grad_rel_l2,
-            }
+            },
+            'backend': backend_name,
         }
         
         logger.info(f"  Performance: {time_ms:.2f} ms, Peak Mem Allocated: {peak_mem_bytes/1024**2:.2f} MB, Peak Mem Reserved: {peak_mem_reserved/1024**2:.2f} MB")
@@ -375,7 +409,8 @@ def analyze_precision_results(results):
     Analyze and display precision effects results.
     """
     logger.info(f"\n{'='*60}")
-    logger.info(f"PRECISION EFFECTS ANALYSIS (FP32 vs FP64)")
+    backend = results.get('FP64', {}).get('backend', 'Unknown')
+    logger.info(f"PRECISION EFFECTS ANALYSIS ({backend}: FP32 vs FP64)")
     logger.info(f"{'='*60}")
     
     # Performance comparison
@@ -414,25 +449,41 @@ def analyze_precision_results(results):
     return results
 
 
-def benchmark_linear_up(linear_up_fn, inputs, warmup=10, runs=50, precision_name=None, layer_number=None, device=None):
+def benchmark_linear_up(
+    linear_up_fn,
+    inputs,
+    warmup=10,
+    runs=50,
+    precision_name=None,
+    layer_number=None,
+    device=None,
+    use_trace: bool = True,
+):
 
-    traced_fn = torch.jit.trace(linear_up_fn, inputs)
-    
+    # Prepare runner (traced or eager)
+    if use_trace:
+        traced_fn = torch.jit.trace(linear_up_fn, inputs)
+        def runner(*args, **kwargs):
+            return traced_fn(*args, **kwargs)
+    else:
+        def runner(*args, **kwargs):
+            return linear_up_fn(*args, **kwargs)
+
     with torch.inference_mode():
         # if the inputs is a tuple, unpack it
         if isinstance(inputs, tuple):
-            _ = traced_fn(*inputs)
+            _ = runner(*inputs)
         else:
-            _ = traced_fn(inputs)
+            _ = runner(inputs)
     if is_cuda_device(device):
         torch.cuda.synchronize(device)
 
     with torch.inference_mode():
         for _ in range(warmup):
             if isinstance(inputs, tuple):
-                traced_fn(*inputs)
+                runner(*inputs)
             else:
-                traced_fn(inputs)
+                runner(inputs)
     if is_cuda_device(device):
         torch.cuda.synchronize(device)
         torch.cuda.empty_cache()
@@ -451,9 +502,9 @@ def benchmark_linear_up(linear_up_fn, inputs, warmup=10, runs=50, precision_name
                 end   = torch.cuda.Event(enable_timing=True)
                 start.record()
                 if isinstance(inputs, tuple):
-                    traced_fn(*inputs)
+                    runner(*inputs)
                 else:
-                    traced_fn(inputs)
+                    runner(inputs)
                 end.record()
                 torch.cuda.synchronize(device)
                 time_ms.append(start.elapsed_time(end))
@@ -462,9 +513,9 @@ def benchmark_linear_up(linear_up_fn, inputs, warmup=10, runs=50, precision_name
             for _ in range(runs):
                 t0 = time.perf_counter()
                 if isinstance(inputs, tuple):
-                    traced_fn(*inputs)
+                    runner(*inputs)
                 else:
-                    traced_fn(inputs)
+                    runner(inputs)
                 t1 = time.perf_counter()
                 time_ms.append((t1 - t0) * 1000.0)
 
@@ -479,12 +530,25 @@ def benchmark_linear_up(linear_up_fn, inputs, warmup=10, runs=50, precision_name
         peak_mem_reserved = 0
     
     # Test output precision
-    test_output = traced_fn(*inputs) if isinstance(inputs, tuple) else traced_fn(inputs)
+    test_output = runner(*inputs) if isinstance(inputs, tuple) else runner(inputs)
     output_dtype = test_output.dtype
     
     return mean_time_ms, peak_mem_bytes, peak_mem_reserved, output_dtype
 
 def main():
+    parser = argparse.ArgumentParser(description="Benchmark e3nn vs cuEq Linear layers with optional batching")
+    parser.add_argument("--backend", choices=["e3nn", "cueq", "both"], default=None,
+                        help="Backend to benchmark. If omitted, prompt interactively.")
+    parser.add_argument("--batch-size", type=int, default=1, help="Batch size B (adds a leading batch dimension)")
+    parser.add_argument("--N", type=int, default=1000, help="Number of feature rows per batch (sequence length)")
+    parser.add_argument("--warmup", type=int, default=10, help="Warmup iterations before timing")
+    parser.add_argument("--runs", type=int, default=50, help="Number of timed iterations")
+    parser.add_argument("--no-trace", action="store_true", help="Use eager mode instead of torch.jit.trace for timing")
+    parser.add_argument("--precisions", type=str, default="fp64,fp32",
+                        help="Comma-separated precisions to test from {fp64,fp32,bf16}")
+    parser.add_argument("--allow-tf32", action="store_true",
+                        help="Allow TF32 (only affects e3nn path on CUDA). By default TF32 is disabled for fairness.")
+    args = parser.parse_args()
     # Check available devices and select the best one
     if torch.cuda.is_available():
         device = ensure_torch_device(get_gpu_with_least_memory())
@@ -515,38 +579,108 @@ def main():
         Irreps(tp1.irreps_out),
     )
 
-    N = 1000
-    nf0 = torch.randn(N, in_ir0.dim, dtype=torch.float64).to(device)
-    nf1 = torch.randn(N, in_ir1.dim, dtype=torch.float64).to(device)
+    # Shapes with optional batching: [B, N, dim]
+    B = max(1, int(args.batch_size))
+    N = max(1, int(args.N))
+    nf0 = torch.randn(B, N, in_ir0.dim, dtype=torch.float64, device=device)
+    nf1 = torch.randn(B, N, in_ir1.dim, dtype=torch.float64, device=device)
 
-    # For a fair comparison, disable TF32 when running e3nn on CUDA
-    if torch.cuda.is_available():
-        torch.backends.cuda.matmul.allow_tf32 = False
-        torch.backends.cudnn.allow_tf32 = False
-        try:
-            # Force exact FP32 matmuls (no TF32)
-            torch.set_float32_matmul_precision("highest")
-        except Exception:
-            pass
+    # Parse precisions
+    name_to_dtype = {"fp64": torch.float64, "fp32": torch.float32, "bf16": torch.bfloat16}
+    requested = [p.strip().lower() for p in args.precisions.split(",") if p.strip()]
+    precisions = []
+    for p in requested:
+        if p == "bf16":
+            if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
+                logger.info("Skipping BF16: not supported on this device.")
+                continue
+        if p in name_to_dtype:
+            precisions.append((name_to_dtype[p], p.upper()))
+    if not precisions:
+        precisions = [(torch.float64, "FP64"), (torch.float32, "FP32")]
 
-    # Test precision effects on e3nn linear layers (without cuEquivariance)
-    logger.info("\n" + "="*60)
-    logger.info("PRECISION EFFECTS TESTING (e3nn Linear Layers - No cuEquivariance)")
-    logger.info("="*60)
+    # Backend selection (arg or prompt)
+    if args.backend is None:
+        resp = input("Use cuEQ backend? [y/N]: ").strip().lower()
+        backend_choice = "cueq" if resp in ("y", "yes") else "e3nn"
+    else:
+        backend_choice = args.backend
 
-    # Benchmark precision effects for linear_up0_e3nn
-    logger.info("\n" + "="*60)
-    logger.info("BENCHMARK: Precision Effects on e3nn Linear Layer 0")
-    logger.info("="*60)
-    precision_results_l0 = benchmark_precision_effects(in_ir0, out_ir0, nf0, device, use_cueq=False, layer_number=0)
-    analyze_precision_results(precision_results_l0)
+    def run_for_backend(backend_key: str):
+        use_cueq_backend = backend_key == "cueq"
+        backend_label = "cuEquivariance" if use_cueq_backend else "e3nn"
 
-    # Benchmark precision effects for linear_up1_e3nn
-    logger.info("\n" + "="*60)
-    logger.info("BENCHMARK: Precision Effects on e3nn Linear Layer 1")
-    logger.info("="*60)
-    precision_results_l1 = benchmark_precision_effects(in_ir1, out_ir1, nf1, device, use_cueq=False, layer_number=1)
-    analyze_precision_results(precision_results_l1)
+        # Guard cuEq availability
+        if use_cueq_backend and not CUET_AVAILABLE:
+            logger.info("cuEquivariance not available; skipping cuEq run.")
+            return
+
+        # For a fair comparison, disable TF32 for e3nn on CUDA unless explicitly allowed
+        reset_tf32 = False
+        prev_allow_tf32 = torch.backends.cuda.matmul.allow_tf32 if torch.cuda.is_available() else None
+        prev_cudnn_tf32 = torch.backends.cudnn.allow_tf32 if torch.cuda.is_available() else None
+        if torch.cuda.is_available() and not use_cueq_backend and not args.allow_tf32:
+            torch.backends.cuda.matmul.allow_tf32 = False
+            torch.backends.cudnn.allow_tf32 = False
+            try:
+                torch.set_float32_matmul_precision("highest")
+            except Exception:
+                pass
+            reset_tf32 = True
+
+        # Test precision effects on linear layers
+        logger.info("\n" + "="*60)
+        logger.info(f"PRECISION EFFECTS TESTING ({backend_label} Linear Layers)")
+        logger.info("="*60)
+
+        # Layer 0
+        logger.info("\n" + "="*60)
+        logger.info(f"BENCHMARK: Precision Effects on {backend_label} Linear Layer 0")
+        logger.info("="*60)
+        precision_results_l0 = benchmark_precision_effects(
+            in_ir0,
+            out_ir0,
+            nf0,
+            device,
+            warmup=args.warmup,
+            runs=args.runs,
+            use_cueq=use_cueq_backend,
+            layer_number=0,
+            backend_name=backend_label,
+            precisions=precisions,
+            use_trace=(not args.no_trace),
+        )
+        analyze_precision_results(precision_results_l0)
+
+        # Layer 1
+        logger.info("\n" + "="*60)
+        logger.info(f"BENCHMARK: Precision Effects on {backend_label} Linear Layer 1")
+        logger.info("="*60)
+        precision_results_l1 = benchmark_precision_effects(
+            in_ir1,
+            out_ir1,
+            nf1,
+            device,
+            warmup=args.warmup,
+            runs=args.runs,
+            use_cueq=use_cueq_backend,
+            layer_number=1,
+            backend_name=backend_label,
+            precisions=precisions,
+            use_trace=(not args.no_trace),
+        )
+        analyze_precision_results(precision_results_l1)
+
+        # Reset TF32 state if we changed it
+        if reset_tf32 and torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = prev_allow_tf32
+            torch.backends.cudnn.allow_tf32 = prev_cudnn_tf32
+
+    if backend_choice == "both":
+        run_for_backend("e3nn")
+        run_for_backend("cueq")
+    else:
+        run_for_backend(backend_choice)
 
 if __name__ == "__main__":
     main()
