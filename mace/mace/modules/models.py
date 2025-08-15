@@ -426,8 +426,6 @@ class ScaleShiftMACE(MACE):
             src=node_e0, index=data["batch"], dim=0, dim_size=num_graphs
         )  # [n_graphs, num_heads]
 
-        print("apppapapappap", e0)
-
         # Embeddings
         node_feats = self.node_embedding(data["node_attrs"])
         edge_attrs = self.spherical_harmonics(vectors)

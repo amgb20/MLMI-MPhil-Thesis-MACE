@@ -1,10 +1,17 @@
+# 1. STANDARD LIBRARY IMPORTS (alphabetical)
 from mace import data, modules, tools
 from e3nn import o3
 import torch
 import numpy as np
 import ase.io
 
-from utils.get_logging_profile import logger
+# 2. THIRD-PARTY LIBRARY IMPORTS (alphabetical)
+import sys
+import os
+
+# 3. LOCAL/APPLICATION IMPORTS (alphabetical)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+from src.utils.get_logging_profile import logger
 
 
 def get_default_model_config(z_table):
@@ -36,7 +43,7 @@ def get_default_model_config(z_table):
     return default_model_config
 
 def data_prep():
-    single_molecule = ase.io.read('Experiments/numerical_stability/md22_double-walled_nanotube.xyz', index='0')
+    single_molecule = ase.io.read('Experiments/numerical_stability/data/md22_double-walled_nanotube.xyz', index='0')
 
     # Detect elements present in the dataset
     atomic_numbers = single_molecule.numbers

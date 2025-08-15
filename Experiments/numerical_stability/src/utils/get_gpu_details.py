@@ -1,5 +1,10 @@
 import torch
-from utils.get_logging_profile import logger
+import sys
+import os
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+from src.utils.get_logging_profile import logger
+
 
 def get_gpu_with_least_memory():
     """

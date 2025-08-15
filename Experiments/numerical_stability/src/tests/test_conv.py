@@ -7,6 +7,10 @@ except AttributeError:
     pass
 import copy
 import warnings
+import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 import ase.io
 import matplotlib.pyplot as plt
@@ -18,6 +22,8 @@ from e3nn import o3
 from mace import data, modules, tools
 # from wrapper_ops import CuEquivarianceConfig, OEQConfig
 from mace.modules.wrapper_ops import CuEquivarianceConfig, OEQConfig
+
+from src.utils.config import get_default_model_config, data_prep
 
 warnings.filterwarnings("ignore")
 import logging
@@ -45,188 +51,9 @@ import ns_plots
 # TODO: Pareto frontier: A scatter “error vs. time” plot where each precision is a dot can more cleanly show the tradeoff curve.
 # TODO: Graph Size scaling: test on several molecule/graph sizes (e.g. 50, 500, 5000 atoms) and visualise how speedup and error scale with system size.
 
-
-def get_default_model_config(z_table):
-    # setup some default parameters based on the actual dataset
-    num_elements = len(z_table.zs)
-    # Create atomic energies array with default values for each element
-    # You can adjust these values based on your needs
-    atomic_energies = np.array(
-        [-1.0] * num_elements, dtype=float
-    )  # Default energy per element
-    cutoff = 3
-
-    # Add cuEq configuration as a CuEquivarianceConfig instance
-    # Option 1: Disable cuEq to enable conv_fusion
-    cueq_config = CuEquivarianceConfig(
-        enabled=True,  # Changed from True to False to allow conv_fusion
-        layout="ir_mul",
-        group="O3",
-        optimize_all=True,
-    )
-
-    # Option 2: Remove cuEq config entirely (uncomment below and comment out above)
-    # cueq_config = None
-
-    oeq_config = OEQConfig(
-        enabled=True,
-        optimize_all=True,
-        conv_fusion="atomic",  # or another supported value
-    )
-
-    default_model_config = dict(
-        num_elements=num_elements,  # number of chemical elements (dynamic)
-        atomic_energies=atomic_energies,  # atomic energies used for normalisation
-        avg_num_neighbors=8,  # avg number of neighbours of the atoms, used for internal normalisation of messages
-        atomic_numbers=z_table.zs,  # atomic numbers, used to specify chemical element embeddings of the model
-        r_max=cutoff,  # cutoff
-        num_bessel=8,  # number of radial features
-        num_polynomial_cutoff=6,  # smoothness of the radial cutoff
-        max_ell=2,  # expansion order of spherical harmonic adge attributes
-        num_interactions=2,  # number of layers, typically 2
-        interaction_cls_first=modules.interaction_classes[
-            "RealAgnosticInteractionBlock"
-        ],
-        interaction_cls=modules.interaction_classes["RealAgnosticInteractionBlock"],
-        hidden_irreps=o3.Irreps(
-            "8x0e + 8x1o"
-        ),  # 8: number of embedding channels, 0e, 1o is specifying which equivariant messages to use. Here up to L_max=1
-        correlation=3,  # correlation order of the messages (body order - 1)
-        MLP_irreps=o3.Irreps(
-            "16x0e"
-        ),  # number of hidden dimensions of last layer readout MLP
-        gate=torch.nn.functional.silu,  # nonlinearity used in last layer readout MLP
-        cueq_config=cueq_config,  # Enable cuEq acceleration
-        oeq_config=oeq_config,  # Enable OEQ acceleration
-    )
-
-    return default_model_config
-
-
-def data_prep():
-    single_molecule = ase.io.read(
-        "Experiments/Official MACE notebook/data/md22_double-walled_nanotube.xyz",
-        index="0",
-    )
-
-    # Detect elements present in the dataset
-    atomic_numbers = single_molecule.numbers
-    unique_atomic_numbers = sorted(set(atomic_numbers))
-    print(f"Elements found in dataset: {unique_atomic_numbers}")
-    print(
-        f"Element symbols: {single_molecule.get_chemical_symbols()[:10]}..."
-    )  # Show first 10 symbols
-
-    Rcut = 3.0  # cutoff radius
-    # z_table = tools.AtomicNumberTable([1, 6, 8])
-    z_table = tools.AtomicNumberTable(unique_atomic_numbers)
-    print(f"Created z_table with {len(z_table.zs)} elements: {z_table.zs}")
-
-    config = data.Configuration(
-        atomic_numbers=single_molecule.numbers,
-        positions=single_molecule.positions,
-        properties={},
-        property_weights={},
-    )
-
-    # we handle configurations using the AtomicData class
-    batch = data.AtomicData.from_config(config, z_table=z_table, cutoff=Rcut)
-
-    vectors, lengths = modules.utils.get_edge_vectors_and_lengths(
-        positions=batch["positions"],
-        edge_index=batch["edge_index"],
-        shifts=batch["shifts"],
-    )
-    print(f"there are {batch.positions.shape[0]} nodes and {len(lengths)} edges")
-    print(f"lengths is shape {lengths.shape}")
-    print(f"vectors is shape {vectors.shape}")
-
-    return batch, lengths, vectors, z_table
-
-
-def get_embedding_blocks(
-    default_model_config, batch, lengths, vectors, z_table, device="cpu"
-):
-    # set up a mace model to get all of the blocks in one place:
-    model = modules.MACE(**default_model_config)
-    model = model.to(device)  # Move model to the specified device
-
-    # Get the model's dtype to ensure consistency
-    model_dtype = next(model.parameters()).dtype
-    print(f"Model dtype: {model_dtype}")
-
-    # Move all input data to the same device and dtype as the model
-    batch = batch.to(device).to(model_dtype)
-    lengths = lengths.to(device).to(model_dtype)
-    vectors = vectors.to(device).to(model_dtype)
-
-    # Ensure all tensors in the batch have the correct dtype
-    # Handle batch as a PyTorch Geometric Data object
-    if hasattr(batch, "__dict__"):
-        for key, value in batch.__dict__.items():
-            if hasattr(value, "dtype") and hasattr(value, "to"):
-                if value.dtype != model_dtype:
-                    print(f"Converting {key} from {value.dtype} to {model_dtype}")
-                    setattr(batch, key, value.to(model_dtype))
-
-    # Debug: Print all tensor dtypes
-    print("Tensor dtypes after conversion:")
-    if hasattr(batch, "__dict__"):
-        for key, value in batch.__dict__.items():
-            if hasattr(value, "dtype"):
-                print(f"  {key}: {value.dtype}")
-    print(f"  lengths: {lengths.dtype}")
-    print(f"  vectors: {vectors.dtype}")
-
-    initial_node_features = model.node_embedding(batch.node_attrs)
-
-    edge_features, _ = model.radial_embedding(
-        lengths, batch["node_attrs"], batch["edge_index"], z_table
-    )
-    edge_attributes = model.spherical_harmonics(vectors)
-
-    # print('initial_node_features is (num_atoms, num_channels):', initial_node_features.shape)
-    # print('edge_features is (num_edge, num_bessel_func):', edge_features.shape)
-    # print('edge_attributes is (num_edge, dimension of spherical harmonics):', edge_attributes.shape)
-    # print(
-    #     '\nInitial node features. Note that they are the same for each chemical element\n',
-    #     initial_node_features
-    # )
-
-    return model, initial_node_features, edge_features, edge_attributes
-
-
-def get_interaction_block(
-    model,
-    batch,
-    lengths,
-    vectors,
-    initial_node_features,
-    edge_features,
-    edge_attributes,
-):
-    Interaction = model.interactions[0]
-
-    intermediate_node_features, sc = Interaction(
-        node_feats=initial_node_features,
-        node_attrs=batch.node_attrs,
-        edge_feats=edge_features,
-        edge_attrs=edge_attributes,
-        edge_index=batch.edge_index,
-    )
-
-    print(
-        "the output of the interaction is (num_atoms, channels, dim. spherical harmonics):",
-        intermediate_node_features.shape,
-    )
-
-    return intermediate_node_features, sc
-
-
 def run_precision_comparison(device="cpu"):
     # Prepare data first to get z_table, then model config
     batch, lengths, vectors, z_table = data_prep()
-    # default_model_config = get_default_model_config()
     default_model_config = get_default_model_config(z_table)
 
     # 1) Build one "master" FP64 model and capture its state

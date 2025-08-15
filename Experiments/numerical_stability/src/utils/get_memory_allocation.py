@@ -1,9 +1,17 @@
+# 1. STANDARD LIBRARY IMPORTS (alphabetical)
 import socket
 from datetime import datetime
 import logging
+import sys
+import os
+
+# 2. THIRD-PARTY LIBRARY IMPORTS (alphabetical)
 import torch
 
-from utils.get_logging_profile import logger
+# 3. LOCAL/APPLICATION IMPORTS (alphabetical)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+
+from src.utils.get_logging_profile import logger
 
 TIME_FORMAT_STR: str = "%b_%d_%H_%M_%S"
 

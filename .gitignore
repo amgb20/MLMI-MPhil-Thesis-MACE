@@ -1,5 +1,6 @@
 mace_env
 Experiments/Official MACE notebook/MACE_models/
+Experiments/Official MACE notebook/MACE_models_fp32/
 *.png
 *.xyz
 *.xlsx
@@ -9,3 +10,6 @@ mace/mace/calculators/foundations_models/*.model
 *.log
 *.txt
 *__pycache__
+*.json
+profiling_traces/
+Experiments/Official MACE notebook/profiling_traces/
