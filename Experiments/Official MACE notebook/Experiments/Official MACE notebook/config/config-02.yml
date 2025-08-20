@@ -17,3 +17,4 @@ batch_size: 10
 max_num_epochs: 100
 swa: True
 seed: 123
+default_dtype: float64

@@ -14,6 +14,9 @@ from e3nn.util.jit import compile_mode
 from mace.modules.radial import ZBLBasis
 from mace.tools.scatter import scatter_sum
 
+import logging
+
+
 from .blocks import (
     AtomicEnergiesBlock,
     EquivariantProductBasisBlock,

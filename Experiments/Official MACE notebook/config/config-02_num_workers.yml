@@ -13,7 +13,11 @@ test_file: "Experiments/Official MACE notebook/data/solvent_xtb_test.xyz"
 energy_key: "energy_xtb"
 forces_key: "forces_xtb"
 device: cuda
-batch_size: 10
+batch_size: 16
 max_num_epochs: 100
 swa: True
 seed: 123
+num_workers: 4
+enable_cueq: True
+only_cueq: True
+default_dtype: float64

@@ -54,8 +54,8 @@ class LinearNodeEmbeddingBlock(torch.nn.Module):
         node_attrs: torch.Tensor,
     ) -> torch.Tensor:  # [n_nodes, irreps]
         node_attrs_debug = self.linear(node_attrs)
-        logging.info("===========LINEAR NODE EMBEDDING BLOCK===========")
-        logging.info(f"Node attributes shape: {node_attrs_debug.shape}")
+        # logging.info("===========LINEAR NODE EMBEDDING BLOCK===========")
+        # logging.info(f"Node attributes shape: {node_attrs_debug.shape}")
         return self.linear(node_attrs)
 
 
@@ -254,8 +254,8 @@ class RadialEmbeddingBlock(torch.nn.Module):
             if not self.apply_cutoff:
                 return radial, cutoff
         radial_debug = radial * cutoff
-        logging.info("===========RADIAL EMBEDDING BLOCK===========")
-        logging.info(f"Radial shape: {radial_debug.shape}")
+        # logging.info("===========RADIAL EMBEDDING BLOCK===========")
+        # logging.info(f"Radial shape: {radial_debug.shape}")
         return radial * cutoff, None  # [n_edges, n_basis], [n_edges, 1]
 
 
@@ -314,7 +314,7 @@ class EquivariantProductBasisBlock(torch.nn.Module):
             if use_cueq_mul_ir:
                 node_feats = torch.transpose(node_feats, 1, 2)
             index_attrs = torch.nonzero(node_attrs)[:, 1].int()
-            logging.info(f"Entering symmetric contractions")
+            # logging.info(f"Entering symmetric contractions")
             node_feats = self.symmetric_contractions(
                 node_feats.flatten(1),
                 index_attrs,
@@ -374,35 +374,6 @@ class InteractionBlock(torch.nn.Module):
         
         ir_str = str(ir)
         logging.info(f"{tag:<15s}: {ir_str:<30s} (dim={dim(ir)})")
-
-
-    # This block was added to debug the model
-    def print_block_sizes(self):
-        """Print the sizes of different components in the block."""
-        logging.info("\n===========BLOCK COMPONENT SIZES===========")
-        logging.info(f"Node Attributes: {type(self.node_attrs_irreps)}")
-        self.describe_irreps("Node Attributes", self.node_attrs_irreps)
-        logging.info(f"Node Features: {type(self.node_feats_irreps)}")
-        self.describe_irreps("Node Features", self.node_feats_irreps)
-        logging.info(f"Edge Attributes: {type(self.edge_attrs_irreps)}")
-        self.describe_irreps("Edge Attributes", self.edge_attrs_irreps)
-        logging.info(f"Edge Features: {type(self.edge_feats_irreps)}")
-        self.describe_irreps("Edge Features", self.edge_feats_irreps)
-        logging.info(f"Target: {type(self.target_irreps)}")
-        self.describe_irreps("Target", self.target_irreps)
-        logging.info(f"Hidden: {type(self.hidden_irreps)}")
-        self.describe_irreps("Hidden", self.hidden_irreps)
-        logging.info(f"Edge: {type(self.edge_irreps)}")
-        self.describe_irreps("Edge", self.edge_irreps)
-        logging.info(f"Radial MLP Layers: {self.radial_MLP}")
-        logging.info(f"Average Number of Neighbors: {self.avg_num_neighbors}")
-
-        if hasattr(self, 'linear_up'):
-            self.describe_irreps("Linear Up", self.linear_up.irreps_out)
-        if hasattr(self, 'conv_tp'):
-            self.describe_irreps("Convolution TP", self.conv_tp.irreps_out)
-        if hasattr(self, 'linear'):
-            self.describe_irreps("Final Linear", self.linear.irreps_out)
 
     @abstractmethod
     def _setup(self) -> None:
@@ -530,7 +501,7 @@ class RealAgnosticInteractionBlock(InteractionBlock):
         lammps_class: Optional[Any] = None,
         first_layer: bool = False,
     ) -> Tuple[torch.Tensor, None]:
-        print(f"==== Entering interaction block ====")
+        # print(f"==== Entering interaction block ====")
         n_real = lammps_natoms[0] if lammps_class is not None else None
         node_feats = self.linear_up(node_feats)
         node_feats = self.handle_lammps(
@@ -545,10 +516,10 @@ class RealAgnosticInteractionBlock(InteractionBlock):
 
         message = None
         if hasattr(self, "conv_fusion"):
-            print("===========CONV FUSION===========")
+            # logging.info("===========CONV FUSION===========")
             message = self.conv_tp(node_feats, edge_attrs, tp_weights, edge_index)
         else:
-            logging.info("===========CONV TP===========")
+            # logging.info("===========CONV TP===========")
             mji = self.conv_tp(
                 node_feats[edge_index[0]], edge_attrs, tp_weights
             )  # [n_nodes, irreps]
@@ -559,8 +530,8 @@ class RealAgnosticInteractionBlock(InteractionBlock):
         node_attrs = self.truncate_ghosts(node_attrs, n_real)
         message = self.linear(message) / self.avg_num_neighbors
         message = self.skip_tp(message, node_attrs)
-        logging.info("===========REAL AGNOSTIC INTERACTION BLOCK===========")
-        logging.info(f"Message shape: {message.shape}")
+        # logging.info("===========REAL AGNOSTIC INTERACTION BLOCK===========")
+        # logging.info(f"Message shape: {message.shape}")
         return (
             self.reshape(message),
             None,
