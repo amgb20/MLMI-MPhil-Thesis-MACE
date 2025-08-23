@@ -11,12 +11,17 @@ from mace.tools import torch_geometric
 from torch.utils.benchmark import Timer
 import torch.utils.benchmark as benchmark
 from mace.calculators import mace_mp
-
+from tqdm import tqdm
 import os
 os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "1"
 
 # Then import e3nn
 from e3nn import o3
+
+"""
+This script is used to benchmark the performance of E3NN and CUET for MACE with simple argument.
+Sister and more refine script is inference_e3nn_vs_cueq.py
+"""
 
 TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 
@@ -52,6 +57,20 @@ def create_model(hidden_irreps, max_ell, cueq_config=None):
     }
     return modules.ScaleShiftMACE(**model_config)
 
+def make_batch(atoms_list, table, batch_size, device):
+    data_loader = torch_geometric.dataloader.DataLoader(
+        dataset=[data.AtomicData.from_config(
+            data.config_from_atoms(atoms),
+            z_table=table,
+            cutoff=6.0
+        ) for atoms in atoms_list],
+        batch_size=min(len(atoms_list), batch_size),
+        shuffle=False,
+        drop_last=False,
+    )
+    batch = next(iter(data_loader)).to(device)
+    return batch.to_dict()
+
 def benchmark_model(model, batch, num_iterations=100, warmup=100, label="Inference", sub_label=None, description=None):
     def run_inference():
         out = model(batch,training=True)
@@ -83,7 +102,7 @@ def main():
     parser.add_argument("--num_iters", type=int, default=100)
     parser.add_argument("--max_ell", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--hidden_irreps", type=str, default="128x0e + 128x1o + 128x2e")
+    parser.add_argument("--hidden_irreps", type=str, default="16x0e + 16x1o")
     args = parser.parse_args()
     torch.set_default_dtype(torch.float64)
     device = torch.device(args.device)
@@ -93,22 +112,11 @@ def main():
     atoms_list = ase.io.read(args.xyz_file, index=":")
     #table = tools.AtomicNumberTable(list(set(np.concatenate([atoms.numbers for atoms in atoms_list]))))
     table = tools.AtomicNumberTable([6, 82, 53, 55])
-    data_loader = torch_geometric.dataloader.DataLoader(
-        dataset=[data.AtomicData.from_config(
-            data.config_from_atoms(atoms),
-            z_table=table,
-            cutoff=6.0
-        ) for atoms in atoms_list],
-        batch_size=min(len(atoms_list), args.batch_size),
-        shuffle=False,
-        drop_last=False,
-    )
-    batch = next(iter(data_loader)).to(device)
-    batch_dict = batch.to_dict()
+    batch_dict = make_batch(atoms_list, table, args.batch_size, device)
 
     print("\nBenchmarking Configuration:")
     print(f"Number of atoms: {len(atoms_list[0])}")
-    print(f"Number of edges: {batch['edge_index'].shape[1]}")
+    print(f"Number of edges: {batch_dict['edge_index'].shape[1]}")
     print(f"Batch size: {min(len(atoms_list), args.batch_size)}")
     print(f"Device: {args.device}")
     print(f"Hidden irreps: {hidden_irreps}")

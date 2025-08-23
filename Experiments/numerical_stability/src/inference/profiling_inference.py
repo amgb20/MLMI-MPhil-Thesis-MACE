@@ -32,9 +32,9 @@ def parse_args():
                        choices=["energy_only", "energy_forces", "complete_calc", "inference_only"],
                        default="inference_only",
                        help="Calculation mode to profile")
-    parser.add_argument("--water_box_size", type=int, default=2, help="Size of water box")
+    parser.add_argument("--supercell_size", type=int, default=2, help="Size of water box")
     parser.add_argument("--warmup", type=int, default=100, help="Number of warmup steps")
-    parser.add_argument("--num_iterations", type=int, default=100, help="Number of iterations")
+    parser.add_argument("--num_iters", type=int, default=100, help="Number of iterations")
     parser.add_argument("--tf32", action="store_true", help="Enable TF32")
     args = parser.parse_args()
     return args
@@ -187,8 +187,11 @@ def label_blocks(model):
     # Core computational blocks
     for i, blk in enumerate(getattr(model, "interactions", [])):
         _wrap_once(blk, f"MACE/Interaction[{i}]")
+
     for i, blk in enumerate(getattr(model, "products", [])):
         _wrap_once(blk, f"MACE/Product[{i}]")
+        _wrap_once(getattr(blk, "symmetric_contractions", None), f"MACE/Product[{i}]/SymmetricContractions")
+        _wrap_once(getattr(blk, "linear", None), f"MACE/Product[{i}]/Linear")
     for i, blk in enumerate(getattr(model, "readouts", [])):
         _wrap_once(blk, f"MACE/Readout[{i}]")
 
@@ -201,6 +204,11 @@ def main():
         logging.info("CUDA is available")
         activities.append(ProfilerActivity.CUDA)
         device = 'cuda'
+        torch.cuda.init()
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+        torch.cuda.reset_accumulated_memory_stats()
+        torch.cuda.synchronize()
     else:
         logging.info("CUDA is not available")
         device = 'cpu'
@@ -209,6 +217,24 @@ def main():
 
     run_dir, xlsx_dir = make_directory()
 
+    # Setup (not profiled)
+    with record_function("Setup/LoadMACECalculator"):
+        mace_calc = MACECalculator(
+            model_paths="Experiments/numerical_stability/src/inference/model/MACE-OFF24_medium.model",
+            default_dtype="float64",
+            enable_cueq=True,
+            device=device,
+        )
+    model = mace_calc.models[0]
+    atoms = build.bulk("C", "diamond", a=3.567) # unit cell of diamond , a dimension of unit cell
+    water_box_size = args.supercell_size
+    atoms = atoms.repeat((water_box_size,water_box_size,water_box_size))
+
+    # Warmup (not profiled)
+    for _ in range(args.warmup):
+        run_inference(args, mace_calc, atoms)
+
+    # Profile only the measured section
     with profile(
         activities=activities,
         profile_memory=True,
@@ -216,26 +242,8 @@ def main():
         with_modules=False,
         on_trace_ready=tensorboard_trace_handler(run_dir),
     ) as prof:
-        with record_function("Setup/LoadMACECalculator"):
-            mace_calc = MACECalculator(
-                model_paths="Experiments/numerical_stability/src/inference/model/MACE-OFF24_medium.model",
-                default_dtype="float32",
-                enable_cueq=True,
-                device=device,
-            )
-        model = mace_calc.models[0]
-        # print(model)
-
         # label MACE blocks into the tracing
         label_blocks(model)
-        atoms = build.bulk("C", "diamond", a=3.567) # unit cell of diamond , a dimension of unit cell
-        # create a 3x3x3 supercell
-        water_box_size = args.water_box_size
-        atoms = atoms.repeat((water_box_size,water_box_size,water_box_size))
-
-        # warmup
-        for _ in range(args.warmup):
-            run_inference(args, mace_calc, atoms)
 
         # run inference and benchmark time
         timer = Timer(
@@ -247,16 +255,16 @@ def main():
                 "atoms": atoms,
             },
         )
-        measurement = timer.timeit(args.num_iterations)
-        print(f"Benchmark mean per iter: {measurement.mean * 1e3:.3f} ms")
+        measurement = timer.timeit(args.num_iters)
+        print(f"Benchmark mean per iter for inference: {measurement.mean * 1e3:.3f} ms")
 
     sort_key = "cuda_time_total" if torch.cuda.is_available() else "cpu_time_total"
     logging.info("\n=== By CUDA time (kernels) ===")
-    prof_table_cuda = prof.key_averages().table(sort_by=sort_key, row_limit=50)
+    prof_table_cuda = prof.key_averages().table(sort_by=sort_key, row_limit=150)
     logging.info(prof_table_cuda)
     with open(f"{xlsx_dir}/cuda_time_total.txt", "w") as f:
         f.write(prof_table_cuda)
-    save_tracing_table_with_openpyxl(prof_table_cuda, f"{run_dir}/cuda_time_total.xlsx")
+    save_tracing_table_with_openpyxl(prof_table_cuda, f"{xlsx_dir}/cuda_time_total.xlsx")
 
 if __name__ == "__main__":
 
