@@ -39,6 +39,14 @@ def parse_args():
     args = parser.parse_args()
     return args
 
+def _monitor_gpu_usage():
+    if torch.cuda.is_available():
+        logging.info(f"GPU: {torch.cuda.get_device_name(0)}")
+        logging.info(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+        logging.info(f"Current GPU Memory: {torch.cuda.memory_allocated(0) / 1e9:.3f} GB")
+        logging.info(f"Peak GPU Memory: {torch.cuda.max_memory_allocated(0) / 1e9:.3f} GB")
+        logging.info(f"GPU Memory Cached: {torch.cuda.memory_reserved(0) / 1e9:.3f} GB")
+
 def tf32_status(args):
     if torch.cuda.is_available() and args.tf32 == True:
         # Check if TF32 is supported on this GPU
@@ -186,15 +194,40 @@ def label_blocks(model):
 
     # Core computational blocks
     for i, blk in enumerate(getattr(model, "interactions", [])):
-        _wrap_once(blk, f"MACE/Interaction[{i}]")
+        _wrap_once(blk, f"MACE/Interaction[{i}]/Main")
+        # Go deeper into interaction blocks
+        if hasattr(blk, "linear_up"):
+            _wrap_once(getattr(blk, "linear_up", None), f"MACE/Interaction[{i}]/LinearUp_Interaction")
+        if hasattr(blk, "conv_tp"):
+            _wrap_once(getattr(blk, "conv_tp", None), f"MACE/Interaction[{i}]/ConvTensorProduct")
+        if hasattr(blk, "conv_tp_weights"):
+            _wrap_once(getattr(blk, "conv_tp_weights", None), f"MACE/Interaction[{i}]/ConvTPWeights")
+        if hasattr(blk, "linear"):
+            _wrap_once(getattr(blk, "linear", None), f"MACE/Interaction[{i}]/Linear_Interaction")
+        if hasattr(blk, "skip_tp"):
+            _wrap_once(getattr(blk, "skip_tp", None), f"MACE/Interaction[{i}]/SkipTensorProduct")
+        if hasattr(blk, "reshape"):
+            _wrap_once(getattr(blk, "reshape", None), f"MACE/Interaction[{i}]/Reshape")
 
     for i, blk in enumerate(getattr(model, "products", [])):
-        _wrap_once(blk, f"MACE/Product[{i}]")
-        _wrap_once(getattr(blk, "symmetric_contractions", None), f"MACE/Product[{i}]/SymmetricContractions")
-        _wrap_once(getattr(blk, "linear", None), f"MACE/Product[{i}]/Linear")
-    for i, blk in enumerate(getattr(model, "readouts", [])):
-        _wrap_once(blk, f"MACE/Readout[{i}]")
+        _wrap_once(blk, f"MACE/Product[{i}]/Main")
+        # Go deeper into product blocks
+        if hasattr(blk, "symmetric_contractions"):
+            _wrap_once(getattr(blk, "symmetric_contractions", None), f"MACE/Product[{i}]/SymmetricContractions")
+        if hasattr(blk, "linear"):
+            _wrap_once(getattr(blk, "linear", None), f"MACE/Product[{i}]/Linear_Product")
 
+    for i, blk in enumerate(getattr(model, "readouts", [])):
+        _wrap_once(blk, f"MACE/Readout[{i}]/Main")
+        # Go deeper into readout blocks
+        if hasattr(blk, "linear"):
+            _wrap_once(getattr(blk, "linear", None), f"MACE/Readout[{i}]/Linear_readout")
+        if hasattr(blk, "linear_1"):
+            _wrap_once(getattr(blk, "linear_1", None), f"MACE/Readout[{i}]/Linear1")
+        if hasattr(blk, "non_linearity"):
+            _wrap_once(getattr(blk, "non_linearity", None), f"MACE/Readout[{i}]/NonLinearity")
+        if hasattr(blk, "linear_2"):
+            _wrap_once(getattr(blk, "linear_2", None), f"MACE/Readout[{i}]/Linear2")
 
 def main():
     args = parse_args()
@@ -234,6 +267,8 @@ def main():
     for _ in range(args.warmup):
         run_inference(args, mace_calc, atoms)
 
+    _monitor_gpu_usage()
+
     # Profile only the measured section
     with profile(
         activities=activities,
@@ -258,9 +293,11 @@ def main():
         measurement = timer.timeit(args.num_iters)
         print(f"Benchmark mean per iter for inference: {measurement.mean * 1e3:.3f} ms")
 
+    _monitor_gpu_usage()
+
     sort_key = "cuda_time_total" if torch.cuda.is_available() else "cpu_time_total"
     logging.info("\n=== By CUDA time (kernels) ===")
-    prof_table_cuda = prof.key_averages().table(sort_by=sort_key, row_limit=150)
+    prof_table_cuda = prof.key_averages().table(sort_by=sort_key, row_limit=500)
     logging.info(prof_table_cuda)
     with open(f"{xlsx_dir}/cuda_time_total.txt", "w") as f:
         f.write(prof_table_cuda)
