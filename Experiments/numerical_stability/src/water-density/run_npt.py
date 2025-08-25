@@ -39,7 +39,7 @@ B_water = 2.2*units.GPa #vs 100*units.GPa recommended default
 ptime   = 500*units.fs
 
 
-calculator = MACELocalSymmetricCharges(args.model_path, device="cuda")
+# calculator = can be mace calculator
 
 # special for just this one...
 calculator.model.coulomb_energy.ewald_energy.kspace_cutoff *= (1/1.25)

@@ -153,22 +153,22 @@ def benchmark_conv_tp(block, inputs, num_iterations=100, warmup=50, device="cuda
     """Benchmark conv_tp block with multiple iterations for stable timing"""
     
     def run_forward():
-        output_tuple = block(**inputs)
-        # MACE interaction blocks return (output, sc) - extract just the output
-        if isinstance(output_tuple, tuple):
-            output = output_tuple[0]
-        else:
-            output = output_tuple
+        # conv_tp expects (sender_node_feats, edge_attrs, tp_weights) in this order
+        output = block(
+            inputs["sender_node_feats"], 
+            inputs["edge_attrs"], 
+            inputs["tp_weights"]
+        )
         if device.startswith("cuda"):
             torch.cuda.synchronize()
         return output
     
     def run_backward(output):
-        # Create a more meaningful loss that ensures gradients flow to node_feats
-        # Use the output directly with node_feats to create a dependency
+        # Create a more meaningful loss that ensures gradients flow to sender_node_feats
+        # Use the output directly with sender_node_feats to create a dependency
         if isinstance(output, torch.Tensor):
-            # Create a loss that depends on both output and node_feats
-            loss = (output**2).sum() + 0.1 * (inputs["node_feats"]**2).sum()
+            # Create a loss that depends on both output and sender_node_feats
+            loss = (output**2).sum() + 0.1 * (inputs["sender_node_feats"]**2).sum()
         else:
             # Fallback for non-tensor outputs
             loss = torch.tensor(0.0, device=device, requires_grad=True)
@@ -177,8 +177,8 @@ def benchmark_conv_tp(block, inputs, num_iterations=100, warmup=50, device="cuda
         if device.startswith("cuda"):
             torch.cuda.synchronize()
         
-        # Get gradients from node_feats
-        grad = inputs["node_feats"].grad.clone() if inputs["node_feats"].grad is not None else torch.zeros_like(inputs["node_feats"])
+        # Get gradients from sender_node_feats
+        grad = inputs["sender_node_feats"].grad.clone() if inputs["sender_node_feats"].grad is not None else torch.zeros_like(inputs["sender_node_feats"])
         return grad
     
     # Warmup
@@ -186,10 +186,10 @@ def benchmark_conv_tp(block, inputs, num_iterations=100, warmup=50, device="cuda
         output = run_forward()
         grad = run_backward(output)
         # Reset gradients
-        inputs["node_feats"].grad.zero_()
+        inputs["sender_node_feats"].grad.zero_()
     
     # CRITICAL: Ensure gradients are completely clean before measurement
-    inputs["node_feats"].grad.zero_()
+    inputs["sender_node_feats"].grad.zero_()
     
     # Reset memory stats
     if device.startswith("cuda"):
@@ -236,7 +236,7 @@ def benchmark_conv_tp(block, inputs, num_iterations=100, warmup=50, device="cuda
         backward_times_list.append(backward_time)
         
         # Reset gradients for next iteration
-        inputs["node_feats"].grad.zero_()
+        inputs["sender_node_feats"].grad.zero_()
     
     # Calculate statistics
     forward_mean = np.mean(forward_times_list)
@@ -449,12 +449,14 @@ def run_conv_tp_benchmark(device="cuda", batch_sizes=None, num_iterations=100, w
                     
                     # Test both interaction blocks
                     for interaction_idx in [0, 1]:
-                        block = model.interactions[interaction_idx]
-                        
-                        # Skip if block doesn't have conv_tp
-                        if not hasattr(block, "conv_tp"):
+                        # Extract just the conv_tp component from the interaction block
+                        interaction_block = model.interactions[interaction_idx]
+                        if not hasattr(interaction_block, "conv_tp"):
                             logging.info(f"      Block {interaction_idx}: No conv_tp found")
                             continue
+                        
+                        conv_tp_component = interaction_block.conv_tp
+                        logging.info(f"      Block {interaction_idx}: conv_tp type: {type(conv_tp_component).__name__}")
                         
                         # For Block 1, we need to process the output from Block 0 first
                         if interaction_idx == 1:
@@ -486,10 +488,31 @@ def run_conv_tp_benchmark(device="cuda", batch_sizes=None, num_iterations=100, w
                         else:
                             current_inputs = inputs
                         
-                        # Benchmark conv_tp
+                        # Prepare inputs specifically for conv_tp component
+                        # From MACE blocks code: conv_tp expects (sender_node_feats, edge_attrs, tp_weights)
+                        # We need to compute tp_weights first using conv_tp_weights
+                        
+                        # Get the conv_tp_weights component
+                        conv_tp_weights_component = interaction_block.conv_tp_weights
+                        
+                        # Compute the convolution weights
+                        tp_weights = conv_tp_weights_component(current_inputs["edge_feats"])
+                        
+                        # Prepare inputs for conv_tp: (sender_node_feats, edge_attrs, tp_weights)
+                        sender_indices = current_inputs["edge_index"][0]
+                        sender_node_feats = current_inputs["node_feats"][sender_indices].clone().detach().requires_grad_()
+                        sender_node_feats.retain_grad()
+                        
+                        conv_tp_inputs = {
+                            "sender_node_feats": sender_node_feats,
+                            "edge_attrs": current_inputs["edge_attrs"], 
+                            "tp_weights": tp_weights
+                        }
+                        
+                        # Benchmark conv_tp component (not the entire interaction block)
                         try:
                             results = benchmark_conv_tp(
-                                block, current_inputs, num_iterations, warmup, device
+                                conv_tp_component, conv_tp_inputs, num_iterations, warmup, device
                             )
                             
                             # Store results
@@ -511,7 +534,7 @@ def run_conv_tp_benchmark(device="cuda", batch_sizes=None, num_iterations=100, w
                             
                             all_results.append(result_row)
                             
-                            logging.info(f"      Block {interaction_idx}: "
+                            logging.info(f"      Block {interaction_idx} conv_tp: "
                                   f"Fwd: {results['forward_latency_ms']:.2f}ms, "
                                   f"Bwd: {results['backward_latency_ms']:.2f}ms, "
                                   f"Mem: {results['gpu_mem_peak_mb']:.1f}MB")
@@ -642,6 +665,29 @@ def save_results(results):
     
     logging.info(f"  Saving {len(results)} results to CSV/JSON...")
     
+    # Define proper column header mapping
+    column_mapping = {
+        "backend": "Backend",
+        "dtype": "Precision",
+        "batch_size": "Batch Size",
+        "interaction": "Interaction Block",
+        "num_nodes": "Nodes per Molecule",
+        "num_edges": "Edges per Molecule",
+        "forward_latency_ms": "Forward Latency (ms)",
+        "backward_latency_ms": "Backward Latency (ms)",
+        "forward_std_ms": "Forward Std Dev (ms)",
+        "backward_std_ms": "Backward Std Dev (ms)",
+        "gpu_mem_peak_mb": "Peak GPU Memory (MB)",
+        "max_abs_error_fwd": "Max Abs Error Forward",
+        "max_rel_error_fwd": "Max Rel Error Forward",
+        "max_abs_error_bwd": "Max Abs Error Backward",
+        "max_rel_error_bwd": "Max Rel Error Backward",
+        "forward_speedup_vs_fp64": "Forward Speedup vs FP64",
+        "backward_speedup_vs_fp64": "Backward Speedup vs FP64",
+        "output": "Output Tensor",
+        "grad": "Gradient Tensor"
+    }
+    
     # Prepare CSV data (excluding tensor objects)
     csv_data = []
     for result in results:
@@ -654,7 +700,7 @@ def save_results(results):
         logging.info(f"  Sample CSV row keys: {list(csv_data[0].keys())}")
     
     # Save CSV
-    csv_path = f"Experiments/numerical_stability/src/tests_blocks/results/conv_tp_benchmark_{timestamp}.csv"
+    csv_path = f"Experiments/numerical_stability/src/tests_blocks/conv_tp/results/conv_tp_benchmark_{timestamp}.csv"
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
     
     with open(csv_path, 'w', newline='') as csvfile:
@@ -664,41 +710,29 @@ def save_results(results):
             for row in csv_data:
                 all_fieldnames.update(row.keys())
             
-            logging.info(f"  CSV fieldnames: {sorted(all_fieldnames)}")
+            # Sort fieldnames and map to proper headers
+            sorted_fieldnames = sorted(all_fieldnames)
+            proper_headers = [column_mapping.get(field, field.replace('_', ' ').title()) for field in sorted_fieldnames]
             
-            writer = csv.DictWriter(csvfile, fieldnames=sorted(all_fieldnames))
-            writer.writeheader()
+            logging.info(f"  CSV fieldnames: {sorted_fieldnames}")
+            logging.info(f"  CSV headers: {proper_headers}")
+            
+            writer = csv.writer(csvfile)
+            writer.writerow(proper_headers)
             
             # Write rows with missing fields as empty
             for row in csv_data:
                 # Fill missing fields with empty values
-                for fieldname in all_fieldnames:
-                    if fieldname not in row:
-                        row[fieldname] = ""
-                writer.writerow(row)
+                csv_row = []
+                for fieldname in sorted_fieldnames:
+                    csv_row.append(row.get(fieldname, ""))
+                writer.writerow(csv_row)
             
             logging.info(f"  Wrote {len(csv_data)} rows to CSV")
         else:
             logging.warning("  No CSV data to write!")
     
     logging.info(f"Results saved to: {csv_path}")
-    
-    # Save JSON (with tensor data)
-    json_path = f"Experiments/numerical_stability/src/tests_blocks/results/conv_tp_benchmark_{timestamp}.json"
-    
-    # Convert tensors to lists for JSON serialization
-    json_data = []
-    for result in results:
-        json_row = result.copy()
-        for key, value in json_row.items():
-            if isinstance(value, torch.Tensor):
-                json_row[key] = value.tolist()
-        json_data.append(json_row)
-    
-    with open(json_path, 'w') as f:
-        json.dump(json_data, f, indent=2)
-    
-    logging.info(f"Detailed results saved to: {json_path}")
 
 
 def generate_summary_report(results):
