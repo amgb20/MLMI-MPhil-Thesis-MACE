@@ -75,6 +75,15 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         choices=["float32", "float64", "float16", "bfloat16"],
         default="float64",
     )
+    # THIS WAS AN ADDED BIT
+    parser.add_argument(
+        "--layer_default_dtype",
+        help="set default dtype for layers (overrides CuEq for acceleration since cuEq does not support other dtypes)",
+        type=str,
+        choices=["float32", "float64", "float16", "bfloat16"],
+        default=None,
+    )
+    # END OF ADDED BIT
     parser.add_argument(
         "--distributed",
         help="train in multi-GPU data parallel mode",

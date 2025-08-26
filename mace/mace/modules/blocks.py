@@ -67,10 +67,11 @@ class LinearReadoutBlock(torch.nn.Module):
         irrep_out: o3.Irreps = o3.Irreps("0e"),
         cueq_config: Optional[CuEquivarianceConfig] = None,
         oeq_config: Optional[OEQConfig] = None,  # pylint: disable=unused-argument
+        layer_dtype: Optional[torch.dtype] = None, # THIS WAS AN ADDED BIT
     ):
         super().__init__()
         self.linear = Linear(
-            irreps_in=irreps_in, irreps_out=irrep_out, cueq_config=cueq_config
+            irreps_in=irreps_in, irreps_out=irrep_out, cueq_config=cueq_config, layer_dtype=layer_dtype
         )
 
     def forward(
@@ -93,16 +94,17 @@ class NonLinearReadoutBlock(torch.nn.Module):
         num_heads: int = 1,
         cueq_config: Optional[CuEquivarianceConfig] = None,
         oeq_config: Optional[OEQConfig] = None,  # pylint: disable=unused-argument
+        layer_dtype: Optional[torch.dtype] = None, # THIS WAS AN ADDED BIT
     ):
         super().__init__()
         self.hidden_irreps = MLP_irreps
         self.num_heads = num_heads
         self.linear_1 = Linear(
-            irreps_in=irreps_in, irreps_out=self.hidden_irreps, cueq_config=cueq_config
+            irreps_in=irreps_in, irreps_out=self.hidden_irreps, cueq_config=cueq_config, layer_dtype=layer_dtype
         )
         self.non_linearity = nn.Activation(irreps_in=self.hidden_irreps, acts=[gate])
         self.linear_2 = Linear(
-            irreps_in=self.hidden_irreps, irreps_out=irrep_out, cueq_config=cueq_config
+            irreps_in=self.hidden_irreps, irreps_out=irrep_out, cueq_config=cueq_config, layer_dtype=layer_dtype
         )
 
     def forward(
@@ -271,6 +273,7 @@ class EquivariantProductBasisBlock(torch.nn.Module):
         use_reduced_cg: Optional[bool] = None,
         cueq_config: Optional[CuEquivarianceConfig] = None,
         oeq_config: Optional[OEQConfig] = None,
+        layer_dtype: Optional[torch.dtype] = None, # THIS WAS AN ADDED BIT
     ) -> None:
         super().__init__()
 
@@ -291,6 +294,7 @@ class EquivariantProductBasisBlock(torch.nn.Module):
             internal_weights=True,
             shared_weights=True,
             cueq_config=cueq_config,
+            layer_dtype=layer_dtype,
         )
         self.cueq_config = cueq_config
 
@@ -341,6 +345,7 @@ class InteractionBlock(torch.nn.Module):
         radial_MLP: Optional[List[int]] = None,
         cueq_config: Optional[CuEquivarianceConfig] = None,
         oeq_config: Optional[OEQConfig] = None,
+        layer_dtype: Optional[torch.dtype] = None, # THIS WAS AN ADDED BIT
     ) -> None:
         super().__init__()
         self.node_attrs_irreps = node_attrs_irreps
@@ -434,6 +439,7 @@ class RealAgnosticInteractionBlock(InteractionBlock):
             internal_weights=True,
             shared_weights=True,
             cueq_config=self.cueq_config,
+            layer_dtype=self.layer_dtype,
         )
         # TensorProduct
         irreps_mid, instructions = tp_out_irreps_with_instructions(
@@ -478,6 +484,7 @@ class RealAgnosticInteractionBlock(InteractionBlock):
             internal_weights=True,
             shared_weights=True,
             cueq_config=self.cueq_config,
+            layer_dtype=self.layer_dtype,
         )
 
         # Selector TensorProduct

@@ -73,8 +73,25 @@ class MACE(torch.nn.Module):
         cueq_config: Optional[Dict[str, Any]] = None,
         oeq_config: Optional[Dict[str, Any]] = None,
         lammps_mliap: Optional[bool] = False,
+        layer_default_dtype: Optional[str] = None, # THIS WAS AN ADDED BIT
     ):
         super().__init__()
+
+        # THIS WAS AN ADDED BIT
+        self.layer_dtype = None
+        if layer_default_dtype is not None:
+            if layer_default_dtype == "float64":
+                self.layer_dtype = torch.float64
+            elif layer_default_dtype == "float32":
+                self.layer_dtype = torch.float32
+            elif layer_default_dtype == "float16":
+                self.layer_dtype = torch.float16
+            elif layer_default_dtype == "bfloat16":
+                self.layer_dtype = torch.bfloat16
+            else:
+                raise ValueError(f"Invalid layer default dtype: {layer_default_dtype}")
+        # END OF ADDED BIT
+
         self.register_buffer(
             "atomic_numbers", torch.tensor(atomic_numbers, dtype=torch.int64)
         )
@@ -102,6 +119,7 @@ class MACE(torch.nn.Module):
             irreps_in=node_attr_irreps,
             irreps_out=node_feats_irreps,
             cueq_config=cueq_config,
+            layer_dtype=self.layer_dtype,
         )
         self.radial_embedding = RadialEmbeddingBlock(
             r_max=r_max,
@@ -151,6 +169,7 @@ class MACE(torch.nn.Module):
             radial_MLP=radial_MLP,
             cueq_config=cueq_config,
             oeq_config=oeq_config,
+            layer_dtype=self.layer_dtype,
         )
         self.interactions = torch.nn.ModuleList([inter])
 
@@ -175,7 +194,7 @@ class MACE(torch.nn.Module):
         self.readouts = torch.nn.ModuleList()
         self.readouts.append(
             LinearReadoutBlock(
-                hidden_irreps, o3.Irreps(f"{len(heads)}x0e"), cueq_config, oeq_config
+                hidden_irreps, o3.Irreps(f"{len(heads)}x0e"), cueq_config, oeq_config, layer_dtype=self.layer_dtype
             )
         )
 
@@ -198,6 +217,7 @@ class MACE(torch.nn.Module):
                 radial_MLP=radial_MLP,
                 cueq_config=cueq_config,
                 oeq_config=oeq_config,
+                layer_dtype=self.layer_dtype,
             )
             self.interactions.append(inter)
             prod = EquivariantProductBasisBlock(
@@ -209,6 +229,7 @@ class MACE(torch.nn.Module):
                 cueq_config=cueq_config,
                 oeq_config=oeq_config,
                 use_reduced_cg=use_reduced_cg,
+                layer_dtype=self.layer_dtype,
             )
             self.products.append(prod)
             if i == num_interactions - 2:
@@ -221,6 +242,7 @@ class MACE(torch.nn.Module):
                         len(heads),
                         cueq_config,
                         oeq_config,
+                        layer_dtype=self.layer_dtype,
                     )
                 )
             else:
@@ -229,7 +251,8 @@ class MACE(torch.nn.Module):
                         hidden_irreps,
                         o3.Irreps(f"{len(heads)}x0e"),
                         cueq_config,
-                        oeq_config,
+                        oeq_config, 
+                        layer_dtype=self.layer_dtype,
                     )
                 )
 

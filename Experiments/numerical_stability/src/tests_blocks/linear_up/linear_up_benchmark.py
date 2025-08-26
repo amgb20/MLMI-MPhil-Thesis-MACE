@@ -535,18 +535,15 @@ def run_linear_up_benchmark(device="cuda", batch_sizes=None, num_iterations=100,
                     logging.info(f"      Error with batch size {batch_size}: {e}")
                     continue
     
-    # Compute accuracy metrics relative to reference (fp64 e3nn AND fp64 cuEq separately)
+    # Compute accuracy metrics relative to reference (fp64 per backend)
     logging.info("\n--- Computing Accuracy Metrics ---")
     
     # Store FP64 references separately for each backend
     fp64_references = {}
-    
-    # Find FP64 reference results for each backend
     for result in all_results:
         if result["dtype"] == "fp64":
             key = (result["backend"], result["batch_size"], result["interaction"])
             fp64_references[key] = result
-            logging.info(f"  FP64 Reference stored: {key}")
     
     logging.info(f"  Total FP64 references: {len(fp64_references)}")
     
@@ -584,9 +581,7 @@ def run_linear_up_benchmark(device="cuda", batch_sizes=None, num_iterations=100,
                 ref["output"], ref["grad"],
                 result["output"], result["grad"]
             )
-            
             logging.info(f"    Accuracy results: {accuracy}")
-            
             # Add accuracy metrics to result
             result.update(accuracy)
         else:

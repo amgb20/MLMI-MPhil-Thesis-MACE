@@ -31,7 +31,7 @@ try:
 except ImportError:
     CUET_AVAILABLE = False
 
-def create_model(hidden_irreps, max_ell, cueq_config=None):
+def create_model(hidden_irreps, max_ell, cueq_config=None, layer_dtype=None):
     table = tools.AtomicNumberTable([8, 82, 53, 55])
     model_config = {
         "r_max": 6.0,
@@ -54,6 +54,7 @@ def create_model(hidden_irreps, max_ell, cueq_config=None):
         "cueq_config": cueq_config,
         "atomic_inter_scale": 1.0,
         "atomic_inter_shift": 0.0,
+        "layer_default_dtype": layer_dtype,
     }
     return modules.ScaleShiftMACE(**model_config)
 
@@ -73,8 +74,14 @@ def make_batch(atoms_list, table, batch_size, device):
 
 def benchmark_model(model, batch, num_iterations=100, warmup=100, label="Inference", sub_label=None, description=None):
     def run_inference():
-        out = model(batch,training=True)
-        torch.cuda.synchronize()
+        if torch.get_default_dtype() == torch.float32:
+            print("Running with autocast")
+            with torch.autocast("cuda"):  # THIS WAS AN ADDED BIT
+                out = model(batch,training=True)
+                torch.cuda.synchronize()
+        else:
+            out = model(batch,training=True)
+            torch.cuda.synchronize()
         return out
 
     # Warmup
@@ -103,6 +110,8 @@ def main():
     parser.add_argument("--max_ell", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--hidden_irreps", type=str, default="16x0e + 16x1o")
+    parser.add_argument("--layer_dtype", type=str, default="float64")
+    parser.add_argument("--warmup", type=int, default=100)
     args = parser.parse_args()
     torch.set_default_dtype(torch.float64)
     device = torch.device(args.device)
@@ -123,7 +132,7 @@ def main():
     print(f"Number of iterations: {args.num_iters}\n")
 
     # Test without CUET
-    model_e3nn = create_model(hidden_irreps, args.max_ell).to(device)
+    model_e3nn = create_model(hidden_irreps, args.max_ell, layer_dtype=args.layer_dtype).to(device)
     #model_e3nn = mace_mp(model="large", device="cuda", default_dtype="float64")
     description = f"device={args.device}, batch={min(len(atoms_list), args.batch_size)}, max_ell={args.max_ell}"
     results = []
@@ -131,20 +140,25 @@ def main():
         model_e3nn,
         batch_dict,
         num_iterations=args.num_iters,
+        warmup=args.warmup,
         label="MACE Inference",
         sub_label="E3NN",
         description=description,
     )
     results.append(measurement_e3nn)
 
+    print("measurement_e3nn", measurement_e3nn)
+
     # Test with CUET if available
     if CUET_AVAILABLE and args.device == "cuda":
+        print("Running CUET")
         model_cueq = run_e3nn_to_cueq(model_e3nn)
         model_cueq = model_cueq.to(device)
         measurement_cueq = benchmark_model(
             model_cueq,
             batch_dict,
             num_iterations=args.num_iters,
+            warmup=args.warmup,
             label="MACE Inference",
             sub_label="CUET",
             description=description,

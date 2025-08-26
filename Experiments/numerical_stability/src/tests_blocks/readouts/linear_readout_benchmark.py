@@ -348,6 +348,40 @@ def run_linear_readout_benchmark(device="cuda", batch_sizes=None, num_iterations
                 "backward_speedup_vs_fp64": "N/A",
             })
 
+    # Compute accuracy vs FP64 per backend and batch size
+    eps = 1e-12
+    fp64_tensors = {}
+    for r in all_results:
+        if r["dtype"] == "fp64":
+            key = (r["backend"], r["batch_size"])
+            fp64_tensors[key] = {"output": r.get("output"), "grad": r.get("grad")}
+    for r in all_results:
+        key = (r["backend"], r["batch_size"])
+        if r["dtype"] == "fp64" or key not in fp64_tensors:
+            r.update({
+                "max_abs_error_forward": "N/A",
+                "max_abs_error_backward": "N/A",
+                "max_rel_error_forward": "N/A",
+                "max_rel_error_backward": "N/A",
+            })
+            continue
+        ref = fp64_tensors[key]
+        out_ref = ref["output"]; grad_ref = ref["grad"]
+        out = r.get("output"); grad = r.get("grad")
+        try:
+            mae_fwd = float(torch.max(torch.abs((out - out_ref).to(torch.float64))).item())
+            mae_bwd = float(torch.max(torch.abs((grad - grad_ref).to(torch.float64))).item())
+            mre_fwd = float(torch.max((torch.abs(out - out_ref) / (torch.abs(out_ref) + eps)).to(torch.float64)).item())
+            mre_bwd = float(torch.max((torch.abs(grad - grad_ref) / (torch.abs(grad_ref) + eps)).to(torch.float64)).item())
+        except Exception:
+            mae_fwd = mae_bwd = mre_fwd = mre_bwd = float("nan")
+        r.update({
+            "max_abs_error_forward": mae_fwd,
+            "max_abs_error_backward": mae_bwd,
+            "max_rel_error_forward": mre_fwd,
+            "max_rel_error_backward": mre_bwd,
+        })
+
     save_results(all_results)
     generate_summary_report(all_results)
     return all_results
@@ -371,6 +405,10 @@ def save_results(results):
         "backward_std_ms": "Backward Std Dev (ms)",
         "forward_speedup_vs_fp64": "Forward Speedup vs FP64",
         "backward_speedup_vs_fp64": "Backward Speedup vs FP64",
+        "max_abs_error_forward": "Max Abs Error Forward",
+        "max_abs_error_backward": "Max Abs Error Backward",
+        "max_rel_error_forward": "Max Rel Error Forward",
+        "max_rel_error_backward": "Max Rel Error Backward",
         "output": "Output Tensor",
         "grad": "Gradient Tensor",
     }
