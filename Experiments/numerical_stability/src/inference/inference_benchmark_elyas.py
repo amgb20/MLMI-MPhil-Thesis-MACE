@@ -13,6 +13,7 @@ import torch.utils.benchmark as benchmark
 from mace.calculators import mace_mp
 from tqdm import tqdm
 import os
+import logging
 os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "1"
 
 # Then import e3nn
@@ -75,18 +76,25 @@ def make_batch(atoms_list, table, batch_size, device):
 def benchmark_model(model, batch, num_iterations=100, warmup=100, label="Inference", sub_label=None, description=None):
     def run_inference():
         if torch.get_default_dtype() == torch.float32:
-            print("Running with autocast")
+            logging.info("Running with autocast")
             with torch.autocast("cuda"):  # THIS WAS AN ADDED BIT
                 out = model(batch,training=True)
                 torch.cuda.synchronize()
         else:
-            out = model(batch,training=True)
+            out = model(batch, training=True)
             torch.cuda.synchronize()
         return out
 
     # Warmup
-    for _ in range(warmup):
-        run_inference()
+    logging_disabled = logging.root.manager.disable
+    logging.disable(logging.CRITICAL)
+    try:
+        for _ in range(warmup):
+            run_inference()
+    finally:
+        logging.disable(logging_disabled)
+
+    logging.info("=== WARMUP DONE === %s")
 
     # Benchmark
     timer = Timer(
@@ -103,17 +111,29 @@ def benchmark_model(model, batch, num_iterations=100, warmup=100, label="Inferen
     return measurement
 
 def main():
+
+    logging.basicConfig(level=logging.INFO)
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("xyz_file", type=str, help="Path to xyz file")
+    parser.add_argument("--xyz_file", type=str, default="Experiments/numerical_stability/src/inference/data/carbon.xyz", help="Path to xyz file")
     parser.add_argument("--device", type=str, default="cuda", choices=["cpu", "cuda"])
     parser.add_argument("--num_iters", type=int, default=100)
     parser.add_argument("--max_ell", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--hidden_irreps", type=str, default="16x0e + 16x1o")
-    parser.add_argument("--layer_dtype", type=str, default="float64")
+    parser.add_argument("--layer_dtype", type=str, default="float32")
     parser.add_argument("--warmup", type=int, default=100)
+    parser.add_argument("--default_dtype", type=str, default="float32")
     args = parser.parse_args()
-    torch.set_default_dtype(torch.float64)
+
+    if args.default_dtype == "float32":
+        default_dtype = torch.float32
+    elif args.default_dtype == "float64":
+        default_dtype = torch.float64
+    else:
+        raise ValueError(f"Invalid default dtype: {args.default_dtype}")
+
+    torch.set_default_dtype(default_dtype)
     device = torch.device(args.device)
     hidden_irreps = o3.Irreps(args.hidden_irreps)
 
@@ -123,13 +143,13 @@ def main():
     table = tools.AtomicNumberTable([6, 82, 53, 55])
     batch_dict = make_batch(atoms_list, table, args.batch_size, device)
 
-    print("\nBenchmarking Configuration:")
-    print(f"Number of atoms: {len(atoms_list[0])}")
-    print(f"Number of edges: {batch_dict['edge_index'].shape[1]}")
-    print(f"Batch size: {min(len(atoms_list), args.batch_size)}")
-    print(f"Device: {args.device}")
-    print(f"Hidden irreps: {hidden_irreps}")
-    print(f"Number of iterations: {args.num_iters}\n")
+    logging.info("\nBenchmarking Configuration:")
+    logging.info(f"Number of atoms: {len(atoms_list[0])}")
+    logging.info(f"Number of edges: {batch_dict['edge_index'].shape[1]}")
+    logging.info(f"Batch size: {min(len(atoms_list), args.batch_size)}")
+    logging.info(f"Device: {args.device}")
+    logging.info(f"Hidden irreps: {hidden_irreps}")
+    logging.info(f"Number of iterations: {args.num_iters}\n")
 
     # Test without CUET
     model_e3nn = create_model(hidden_irreps, args.max_ell, layer_dtype=args.layer_dtype).to(device)
@@ -147,11 +167,14 @@ def main():
     )
     results.append(measurement_e3nn)
 
-    print("measurement_e3nn", measurement_e3nn)
+    logging.info("measurement_e3nn %s", measurement_e3nn)
+
+
+    torch.set_default_dtype(default_dtype)
 
     # Test with CUET if available
     if CUET_AVAILABLE and args.device == "cuda":
-        print("Running CUET")
+        logging.info("Running CUET")
         model_cueq = run_e3nn_to_cueq(model_e3nn)
         model_cueq = model_cueq.to(device)
         measurement_cueq = benchmark_model(
@@ -165,16 +188,16 @@ def main():
         )
         results.append(measurement_cueq)
 
-    # Print comparison
+    # logging.info comparison
     if len(results) > 1:
-        print("\nBenchmark comparison:")
+        logging.info("\nBenchmark comparison:")
         compare = benchmark.Compare(results)
         compare.print()
-        # Also print speedup for convenience if CUET is present
+        # Also logging.info speedup for convenience if CUET is present
         if CUET_AVAILABLE and args.device == "cuda":
-            print(f"\nSpeedup (E3NN -> CUET): {measurement_e3nn.mean / measurement_cueq.mean:.2f}x")
+            logging.info(f"\nSpeedup (E3NN -> CUET): {measurement_e3nn.mean / measurement_cueq.mean:.2f}x")
     else:
-        print(f"E3NN Measurement:\n{measurement_e3nn}")
+        logging.info(f"E3NN Measurement:\n{measurement_e3nn}")
 
 if __name__ == "__main__":
     main()
