@@ -73,9 +73,9 @@ def make_batch(atoms_list, table, batch_size, device):
     batch = next(iter(data_loader)).to(device)
     return batch.to_dict()
 
-def benchmark_model(model, batch, num_iterations=100, warmup=100, label="Inference", sub_label=None, description=None):
+def benchmark_model(model, batch, num_iterations=100, warmup=100,args = None, label="Inference", sub_label=None, description=None):
     def run_inference():
-        if torch.get_default_dtype() == torch.float32:
+        if torch.get_default_dtype() == torch.float32 and args.amp == "True":
             logging.info("Running with autocast")
             with torch.autocast("cuda"):  # THIS WAS AN ADDED BIT
                 out = model(batch,training=True)
@@ -110,9 +110,54 @@ def benchmark_model(model, batch, num_iterations=100, warmup=100, label="Inferen
     measurement = timer.timeit(num_iterations)
     return measurement
 
+def benchmark_cueq_model(model, batch, num_iterations=100, warmup=100, args = None, label="Inference", sub_label=None, description=None):
+    def run_inference():
+        if torch.get_default_dtype() == torch.float32 and args.amp == "True":
+            logging.info("Running with autocast")
+            with torch.autocast("cuda"):  # THIS WAS AN ADDED BIT
+                out = model(batch,training=True)
+                torch.cuda.synchronize()
+        else:
+            out = model(batch, training=True)
+            torch.cuda.synchronize()
+        return out
+
+    # Warmup
+    logging_disabled = logging.root.manager.disable
+    logging.disable(logging.CRITICAL)
+    try:
+        for _ in range(warmup):
+            run_inference()
+    finally:
+        logging.disable(logging_disabled)
+
+    logging.info("=== WARMUP DONE === %s")
+
+    # Benchmark
+    lat_ms = []
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    for _ in range(num_iterations):
+        start.record()
+        out = run_inference()
+        end.record()
+        torch.cuda.synchronize()
+        lat_ms.append(start.elapsed_time(end)) # in ms
+
+    meam_ms = float(np.mean(lat_ms))
+    std_ms = float(np.std(lat_ms))
+    p95_ms = float(np.percentile(lat_ms, 95))
+    logging.info("mean ms %s, std ms %s, p95 ms %s", meam_ms, std_ms, p95_ms)
+    logging.info("Energy %s, Forces %s", out["energy"], out["forces"])
+    return meam_ms, std_ms, p95_ms
+
 def main():
 
     logging.basicConfig(level=logging.INFO)
+
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+    torch.cuda.manual_seed_all(42)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--xyz_file", type=str, default="Experiments/numerical_stability/src/inference/data/carbon.xyz", help="Path to xyz file")
@@ -121,15 +166,19 @@ def main():
     parser.add_argument("--max_ell", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--hidden_irreps", type=str, default="16x0e + 16x1o")
-    parser.add_argument("--layer_dtype", type=str, default="float32")
+    parser.add_argument("--layer_dtype", type=str, default="bfloat16")
     parser.add_argument("--warmup", type=int, default=100)
     parser.add_argument("--default_dtype", type=str, default="float32")
+    parser.add_argument("--individual_cueq", type=str, default="True")
+    parser.add_argument("--amp", type=str, default="False")
     args = parser.parse_args()
 
     if args.default_dtype == "float32":
         default_dtype = torch.float32
     elif args.default_dtype == "float64":
         default_dtype = torch.float64
+    elif args.default_dtype == "bfloat16":
+        default_dtype = torch.bfloat16
     else:
         raise ValueError(f"Invalid default dtype: {args.default_dtype}")
 
@@ -152,7 +201,14 @@ def main():
     logging.info(f"Number of iterations: {args.num_iters}\n")
 
     # Test without CUET
-    model_e3nn = create_model(hidden_irreps, args.max_ell, layer_dtype=args.layer_dtype).to(device)
+    model_e3nn = create_model(hidden_irreps, args.max_ell,cueq_config=None, layer_dtype=args.layer_dtype).to(device)
+    def summarize_model_dtypes(model):
+        from collections import Counter
+        c = Counter(p.dtype for p in model.parameters())
+        b = Counter(b.dtype for b in model.buffers())
+        logging.info(f"Param dtypes: {c}")
+        logging.info(f"Buffer dtypes: {b}")
+    summarize_model_dtypes(model_e3nn)
     #model_e3nn = mace_mp(model="large", device="cuda", default_dtype="float64")
     description = f"device={args.device}, batch={min(len(atoms_list), args.batch_size)}, max_ell={args.max_ell}"
     results = []
@@ -161,6 +217,7 @@ def main():
         batch_dict,
         num_iterations=args.num_iters,
         warmup=args.warmup,
+        args=args,
         label="MACE Inference",
         sub_label="E3NN",
         description=description,
@@ -174,19 +231,38 @@ def main():
 
     # Test with CUET if available
     if CUET_AVAILABLE and args.device == "cuda":
-        logging.info("Running CUET")
-        model_cueq = run_e3nn_to_cueq(model_e3nn)
-        model_cueq = model_cueq.to(device)
-        measurement_cueq = benchmark_model(
-            model_cueq,
-            batch_dict,
-            num_iterations=args.num_iters,
-            warmup=args.warmup,
-            label="MACE Inference",
-            sub_label="CUET",
-            description=description,
-        )
-        results.append(measurement_cueq)
+        if args.individual_cueq == "False":
+            logging.info("Running CUET")
+            model_cueq = run_e3nn_to_cueq(model_e3nn)
+            model_cueq = model_cueq.to(device)
+            measurement_cueq = benchmark_model(
+                model_cueq,
+                batch_dict,
+                num_iterations=args.num_iters,
+                warmup=args.warmup,
+                args=args,
+                label="MACE Inference",
+                sub_label="CUET",
+                description=description,
+            )
+            results.append(measurement_cueq)
+
+            logging.info("measurement_cueq %s", measurement_cueq)
+
+        elif args.individual_cueq == "True":
+            logging.info("Running CUET benchmark")
+            model_cueq = run_e3nn_to_cueq(model_e3nn)
+            model_cueq = model_cueq.to(device)
+            measurement_cueq_only = benchmark_cueq_model(
+                model_cueq, 
+                batch_dict, 
+                num_iterations=args.num_iters, 
+                warmup=args.warmup, 
+                args=args,
+                label="MACE Inference", 
+                sub_label="CUET", 
+                description=description)
+            logging.info("measurement_cueq_only %s", measurement_cueq_only)
 
     # logging.info comparison
     if len(results) > 1:

@@ -191,7 +191,7 @@ Where:
 
 The key insight is that forces are computed as the negative gradient of the energy with respect to atomic positions, which PyTorch handles automatically through the computational graph built during the forward pass.
 
-
+## 
 ScaleShiftMACE(
   (node_embedding): LinearNodeEmbeddingBlock(
     (linear): Linear(

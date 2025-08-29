@@ -36,6 +36,8 @@ def parse_args():
     parser.add_argument("--warmup", type=int, default=100, help="Number of warmup steps")
     parser.add_argument("--num_iters", type=int, default=100, help="Number of iterations")
     parser.add_argument("--tf32", action="store_true", help="Enable TF32")
+    parser.add_argument("--default_dtype", type=str, default="float64", help="Default dtype for MACECalculator")
+    parser.add_argument("--layer_default_dtype", type=str, default="float64", help="Default dtype for layers")
     args = parser.parse_args()
     return args
 
@@ -254,9 +256,10 @@ def main():
     with record_function("Setup/LoadMACECalculator"):
         mace_calc = MACECalculator(
             model_paths="Experiments/numerical_stability/src/inference/model/MACE-OFF24_medium.model",
-            default_dtype="float64",
-            enable_cueq=True,
+            default_dtype=args.default_dtype,
+            enable_cueq=False,
             device=device,
+            layer_default_dtype=args.layer_default_dtype,
         )
     model = mace_calc.models[0]
     atoms = build.bulk("C", "diamond", a=3.567) # unit cell of diamond , a dimension of unit cell
@@ -297,7 +300,7 @@ def main():
 
     sort_key = "cuda_time_total" if torch.cuda.is_available() else "cpu_time_total"
     logging.info("\n=== By CUDA time (kernels) ===")
-    prof_table_cuda = prof.key_averages().table(sort_by=sort_key, row_limit=500)
+    prof_table_cuda = prof.key_averages().table(sort_by=sort_key, row_limit=10)
     logging.info(prof_table_cuda)
     with open(f"{xlsx_dir}/cuda_time_total.txt", "w") as f:
         f.write(prof_table_cuda)
