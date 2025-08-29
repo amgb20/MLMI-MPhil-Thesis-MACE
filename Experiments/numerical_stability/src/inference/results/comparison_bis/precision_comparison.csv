@@ -1,0 +1,9 @@
+Precision Metric,Value,Unit,Notes
+Energy Absolute Difference,1.02e+02,eV,|E_FP32 - E_FP64|
+Energy Relative Error,9.63e-05,,|E_FP32 - E_FP64| / |E_FP64|
+Energy Difference per Atom,9.92e-02,eV/atom,|E_FP32 - E_FP64| / N_atoms
+Force MAE,1.10e-02,eV/Å,Mean absolute error in forces
+Force RMSE,2.05e-02,eV/Å,Root mean square error in forces
+Force Relative Error,2.06e+00,,||F_FP32 - F_FP64|| / ||F_FP64||
+Force Cosine Similarity,-0.686299,,Mean cosine similarity per atom
+Speedup,3.11,x,FP64 time / FP32 time

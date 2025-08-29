@@ -1,0 +1,8 @@
+Metric,FP64 (Reference),FP32,Difference (FP32-FP64),Relative Error,Speedup
+Inference Time (ms),502.411,161.484,-340.927,3.11x,
+Energy (eV),-1055426.491686,-1055324.875000,1.02e+02,9.63e-05,
+Energy per atom (eV/atom),,,9.92e-02,,
+Force MAE (eV/Å),,,1.10e-02,,
+Force RMSE (eV/Å),,,2.05e-02,,
+Force relative error,,,2.06e+00,,
+Force cosine similarity,,,-0.686299,,

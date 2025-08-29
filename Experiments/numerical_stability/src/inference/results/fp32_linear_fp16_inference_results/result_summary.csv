@@ -1,2 +1,2 @@
-Backend,Default dtype,Layer default dtype,Inference Time,Energy,Forces
-CUEQ,float32,float16,158.27246994018554,-1055504.5,1.564578e-02
+Backend,Default dtype,Layer default dtype,Avg Inference Time (ms),Inference Time Std (ms),Avg Energy (eV),Energy Std (eV),Avg Energy per atom (eV/atom),Energy per atom Std (eV/atom),Avg Force (eV/Å),Force Std (eV/Å)
+CUEQ,float32,float16,158.2724699,5.821602872673053,-1055504.5,0.0,-1030.76611328125,0.0,1.564581e-02,8.0188116e-08
