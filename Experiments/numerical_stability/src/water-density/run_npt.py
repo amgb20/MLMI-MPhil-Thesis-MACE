@@ -7,10 +7,12 @@ from ase.io import read, write, Trajectory
 from ase.io.lammpsdata import read_lammps_data, write_lammps_data
 from ase.md.npt import NPT
 from ase.md.velocitydistribution import Stationary, ZeroRotation
-
+from mace.calculators import MACECalculator
 from macetools.calculators.localsources import MACELocalSymmetricCharges
+
 import time
 import argparse
+import torch
 
 
 
@@ -21,6 +23,11 @@ parser.add_argument("--temp", type=float, required=True)
 parser.add_argument("--runtime", type=int, required=True)
 parser.add_argument("--label", type=str, required=True)
 args = parser.parse_args()
+
+if torch.cuda.is_available():
+    device = 'cuda'
+else:
+    device = 'cpu'
 
 
 
@@ -39,7 +46,13 @@ B_water = 2.2*units.GPa #vs 100*units.GPa recommended default
 ptime   = 500*units.fs
 
 
-# calculator = can be mace calculator
+calculator = MACECalculator(
+        model_paths="Experiments/numerical_stability/src/inference/model/MACE-OFF24_medium.model",
+        default_dtype=args.default_dtype,
+        enable_cueq=args.enable_cueq,
+        device=device,
+        layer_default_dtype=args.layer_default_dtype,
+    )
 
 # special for just this one...
 calculator.model.coulomb_energy.ewald_energy.kspace_cutoff *= (1/1.25)

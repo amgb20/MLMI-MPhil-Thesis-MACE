@@ -67,3 +67,10 @@ def audit_model_dtypes(model):
     bc = Counter(b.dtype for b in model.buffers())
     print("Param dtypes:", pc)
     print("Buffer dtypes:", bc)
+
+def summarize_model_dtypes(model):
+    from collections import Counter
+    c = Counter(p.dtype for p in model.parameters())
+    b = Counter(b.dtype for b in model.buffers())
+    print(f"Param dtypes: {c}")
+    print(f"Buffer dtypes: {b}")
