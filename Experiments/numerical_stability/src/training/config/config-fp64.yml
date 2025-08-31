@@ -1,0 +1,23 @@
+
+model: "MACE"
+num_channels: 32
+max_L: 0
+r_max: 4.0
+name: "mace01_fp64-fp64"
+model_dir: "Experiments/numerical_stability/src/training/MACE_models/MACE_models_fp64-fp64"
+log_dir: "Experiments/numerical_stability/src/training/MACE_models/MACE_models_fp64-fp64"
+checkpoints_dir: "Experiments/numerical_stability/src/training/MACE_models/MACE_models_fp64-fp64"
+results_dir: "Experiments/numerical_stability/src/training/MACE_models/MACE_models_fp64-fp64"
+train_file: "Experiments/Official MACE notebook/data/solvent_xtb_train_200.xyz"
+valid_fraction: 0.10
+test_file: "Experiments/Official MACE notebook/data/solvent_xtb_test.xyz"
+energy_key: "energy_xtb"
+forces_key: "forces_xtb"
+device: cuda
+enable_cueq: True
+default_dtype: float64
+layer_default_dtype: float64
+batch_size: 10
+max_num_epochs: 100
+swa: True
+seed: 123

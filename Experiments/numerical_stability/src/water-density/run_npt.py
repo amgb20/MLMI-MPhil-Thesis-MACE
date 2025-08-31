@@ -1,6 +1,6 @@
 import sys
 import time
-from datetime import date
+from datetime import date, datetime
 import numpy as np
 from ase import units
 from ase.io import read, write, Trajectory
@@ -8,12 +8,13 @@ from ase.io.lammpsdata import read_lammps_data, write_lammps_data
 from ase.md.npt import NPT
 from ase.md.velocitydistribution import Stationary, ZeroRotation
 from mace.calculators import MACECalculator
-from macetools.calculators.localsources import MACELocalSymmetricCharges
+# from macetools.calculators.localsources import MACELocalSymmetricCharges
 
 import time
 import argparse
 import torch
-
+import os
+from plots_npt_results import plot_water_density
 
 
 parser = argparse.ArgumentParser()
@@ -22,6 +23,12 @@ parser.add_argument("--structure", type=str, required=True)
 parser.add_argument("--temp", type=float, required=True)
 parser.add_argument("--runtime", type=int, required=True)
 parser.add_argument("--label", type=str, required=True)
+
+parser.add_argument("--default_dtype", type=str, default="float64", help="Default dtype for MACECalculator")
+parser.add_argument("--layer_default_dtype", type=str, default="float64", help="Default dtype for layers")
+parser.add_argument("--enable_cueq", action="store_true", help="Enable CUEQ")
+parser.add_argument("--autocast", action="store_true", help="Enable autocast")
+parser.add_argument("--run_dir", type=str, default="results", help="Directory to save results")
 args = parser.parse_args()
 
 if torch.cuda.is_available():
@@ -29,7 +36,12 @@ if torch.cuda.is_available():
 else:
     device = 'cpu'
 
-
+# Create organized directory structure
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+run_dir = f"{args.run_dir}/run_{timestamp}"
+images_dir = os.path.join(run_dir, "images")
+os.makedirs(run_dir, exist_ok=True)
+os.makedirs(images_dir, exist_ok=True)
 
 densfact = (units.m/1.0e2)**3/units.mol
 
@@ -47,7 +59,7 @@ ptime   = 500*units.fs
 
 
 calculator = MACECalculator(
-        model_paths="Experiments/numerical_stability/src/inference/model/MACE-OFF24_medium.model",
+        model_paths=args.model_path,
         default_dtype=args.default_dtype,
         enable_cueq=args.enable_cueq,
         device=device,
@@ -55,7 +67,7 @@ calculator = MACECalculator(
     )
 
 # special for just this one...
-calculator.model.coulomb_energy.ewald_energy.kspace_cutoff *= (1/1.25)
+# calculator.models[0].coulomb_energy.ewald_energy.kspace_cutoff *= (1/1.25)
 
 start_config = read(args.structure, '-1')
 start_config.set_cell(np.triu(start_config.get_cell()))
@@ -68,8 +80,9 @@ md.set_fraction_traceless(0) #I think this is equivalent to an isotropic stress 
 start_config_positions = start_config.positions.copy()
 start_config_com       = start_config.get_center_of_mass().copy()
 
-thermo_traj = open(out_name + '.thermo', 'a')
-coord_traj_name = out_name + '.xyz'
+# Save files in the organized directory
+thermo_traj = open(os.path.join(run_dir, out_name + '.thermo'), 'a')
+coord_traj_name = os.path.join(run_dir, out_name + '.xyz')
 
 def print_traj(a=start_config):
     wall_time = time.time() - start_time
@@ -98,4 +111,9 @@ md.attach(print_traj)
 md.run(MD_T)
 thermo_traj.close()
 
+# Save plot in the images directory
+plot_water_density(os.path.join(run_dir, out_name + '.thermo'), os.path.join(images_dir, out_name + '.png'))
+
+print(f"Results saved in: {run_dir}")
+print(f"Images saved in: {images_dir}")
 
